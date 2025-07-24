@@ -1,9 +1,9 @@
-// server.js
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const querystring = require('querystring');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,11 +11,11 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(bodyParser.json());
 
-// 🔐 Recomendado: use variáveis de ambiente
+// Substitua pelas suas variáveis de ambiente reais
 const PAGSEGURO_EMAIL = process.env.PAGSEGURO_EMAIL || "contato@flordosilencio.com.br";
 const PAGSEGURO_TOKEN = process.env.PAGSEGURO_TOKEN || "9bc6cff2-d963-4b05-bbb3-772697af7654ed455bca4a219ca20be304475dc0bbbfe8d0-6a15-4d42-aa21-8bdb78aa5416";
 
-// Utilitário para endereço seguro
+// Função auxiliar para tratar billingAddress
 function safeBillingAddress(holder) {
   return {
     billingAddressStreet: holder?.billingAddress?.street || '',
@@ -28,7 +28,6 @@ function safeBillingAddress(holder) {
   };
 }
 
-// 🚀 Endpoint de pagamento
 app.post('/api/process-payment', async (req, res) => {
   const {
     token,
@@ -79,9 +78,13 @@ app.post('/api/process-payment', async (req, res) => {
 
     const postData = querystring.stringify(data);
 
-    const response = await axios.post('https://ws.pagseguro.uol.com.br/v2/transactions', postData, {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    });
+    const response = await axios.post(
+      'https://ws.pagseguro.uol.com.br/v2/transactions',
+      postData,
+      {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      }
+    );
 
     res.status(200).send({ success: true, data: response.data });
   } catch (error) {
@@ -90,7 +93,13 @@ app.post('/api/process-payment', async (req, res) => {
   }
 });
 
-// Iniciar servidor
+// Serve arquivos do frontend (Vite build)
+app.use(express.static(path.join(__dirname, 'dist')));
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
+
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
 });
