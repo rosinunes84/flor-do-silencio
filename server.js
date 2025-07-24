@@ -1,21 +1,28 @@
-const express = require('express');
-const axios = require('axios');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const querystring = require('querystring');
-const path = require('path');
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import cors from 'cors';
+import bodyParser from 'body-parser';
+import axios from 'axios';
+import querystring from 'querystring';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Middlewares
 app.use(cors());
 app.use(bodyParser.json());
 
-// Substitua pelas suas variáveis de ambiente reais
-const PAGSEGURO_EMAIL = process.env.PAGSEGURO_EMAIL || "contato@flordosilencio.com.br";
-const PAGSEGURO_TOKEN = process.env.PAGSEGURO_TOKEN || "9bc6cff2-d963-4b05-bbb3-772697af7654ed455bca4a219ca20be304475dc0bbbfe8d0-6a15-4d42-aa21-8bdb78aa5416";
+// Serve frontend estático (build do Vite)
+app.use(express.static(path.join(__dirname, 'dist')));
 
-// Função auxiliar para tratar billingAddress
+// Utilitário para endereço seguro
 function safeBillingAddress(holder) {
   return {
     billingAddressStreet: holder?.billingAddress?.street || '',
@@ -28,6 +35,7 @@ function safeBillingAddress(holder) {
   };
 }
 
+// API de pagamento
 app.post('/api/process-payment', async (req, res) => {
   const {
     token,
@@ -41,16 +49,16 @@ app.post('/api/process-payment', async (req, res) => {
     birthDate,
     installmentQuantity,
     installmentValue,
-    creditCardHolder
+    creditCardHolder,
   } = req.body;
 
   try {
     const data = {
-      email: PAGSEGURO_EMAIL,
-      token: PAGSEGURO_TOKEN,
+      email: process.env.PAGSEGURO_EMAIL,
+      token: process.env.PAGSEGURO_TOKEN,
       paymentMode: 'default',
       paymentMethod: 'creditCard',
-      receiverEmail: PAGSEGURO_EMAIL,
+      receiverEmail: process.env.PAGSEGURO_EMAIL,
       currency: 'BRL',
       itemId1: '001',
       itemDescription1: 'Compra na loja Flor do Silêncio',
@@ -82,24 +90,27 @@ app.post('/api/process-payment', async (req, res) => {
       'https://ws.pagseguro.uol.com.br/v2/transactions',
       postData,
       {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
       }
     );
 
     res.status(200).send({ success: true, data: response.data });
   } catch (error) {
-    console.error("Erro no pagamento:", error.response?.data || error.message);
-    res.status(500).send({ success: false, error: error.response?.data || error.message });
+    console.error('Erro no pagamento:', error.response?.data || error.message);
+    res
+      .status(500)
+      .send({ success: false, error: error.response?.data || error.message });
   }
 });
 
-// Serve arquivos do frontend (Vite build)
-app.use(express.static(path.join(__dirname, 'dist')));
-
+// Sempre retorna index.html para rotas do frontend (SPA)
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
 });
 
+// Start do servidor
 app.listen(PORT, () => {
-  console.log(`Servidor rodando em http://localhost:${PORT}`);
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
