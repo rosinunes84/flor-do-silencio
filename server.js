@@ -1,8 +1,6 @@
-// server.js
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const fetch = require('node-fetch');
 require('dotenv').config();
 
 const app = express();
@@ -62,16 +60,9 @@ app.post('/shipping/calculate', async (req, res) => {
 });
 
 // ==========================
-// Rota de teste para verificar backend
+// Rota de criação de ordem no PagSeguro (PIX e Cartão de Crédito)
 // ==========================
-app.get('/checkout', (req, res) => {
-  res.json({ message: 'API do PagSeguro está online' });
-});
-
-// ==========================
-// Rota de criação de ordem e cobrança no PagSeguro (PIX e Cartão)
-// ==========================
-app.post('/create-payment', async (req, res) => {
+app.post('/pagseguro/create_order', async (req, res) => {
   const { items, customer, shipping, paymentMethod } = req.body;
 
   if (!items || !items.length || !customer) {
@@ -83,7 +74,7 @@ app.post('/create-payment', async (req, res) => {
   }
 
   try {
-    // Criar ordem no PagSeguro
+    // Criar a ordem no PagSeguro
     const orderResponse = await fetch('https://sandbox.api.pagseguro.com/orders', {
       method: 'POST',
       headers: {
@@ -94,7 +85,7 @@ app.post('/create-payment', async (req, res) => {
         customer: {
           name: customer.name,
           email: customer.email,
-          tax_id: customer.cpf, // CPF
+          tax_id: customer.cpf,
           phones: [{
             country: '55',
             area: customer.phone.slice(0, 2),
@@ -105,7 +96,7 @@ app.post('/create-payment', async (req, res) => {
         items: items.map(item => ({
           name: item.name,
           quantity: item.quantity,
-          unit_amount: Math.round(item.salePrice * 100) // em centavos
+          unit_amount: Math.round(item.salePrice * 100)
         })),
         shipping: {
           address: {
@@ -130,7 +121,7 @@ app.post('/create-payment', async (req, res) => {
       return res.status(500).json({ error: 'Erro ao criar ordem no PagSeguro', details: orderData });
     }
 
-    // Criar cobrança no PagSeguro
+    // Criar a cobrança (charge)
     const chargeResponse = await fetch('https://sandbox.api.pagseguro.com/charges', {
       method: 'POST',
       headers: {
@@ -144,7 +135,7 @@ app.post('/create-payment', async (req, res) => {
           value: orderData.amount.value,
           currency: 'BRL'
         },
-        payment_method: paymentMethod // CREDIT_CARD ou PIX
+        payment_method: paymentMethod
       })
     });
 
