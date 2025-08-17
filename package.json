@@ -1,23 +1,19 @@
 {
-  "name": "flor-do-silencio-store",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "start-server": "node server.js"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "axios": "^1.6.7",
+    "axios": "^1.11.0",
+    "body-parser": "^2.2.0",
     "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
-    "express": "^4.18.2",
-    "querystring": "^0.2.1"
-  },
-  "devDependencies": {
-    "vite": "^4.4.5",
-    "@vitejs/plugin-react": "^4.0.3"
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0"
   }
 }
