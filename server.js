@@ -22,11 +22,6 @@ app.post('/shipping/calculate', async (req, res) => {
   }
 
   try {
-    // Montar peso total, dimensões e valor total do pedido
-    const totalWeight = items.reduce((sum, item) => sum + (item.weight || 0) * item.quantity, 0); // em kg
-    const totalValue = items.reduce((sum, item) => sum + (item.salePrice || 0) * item.quantity, 0);
-
-    // Chamada à API do Melhor Envio
     const response = await fetch('https://www.melhorenvio.com.br/api/v2/me/shipment/calculate', {
       method: 'POST',
       headers: {
@@ -34,12 +29,8 @@ app.post('/shipping/calculate', async (req, res) => {
         'Authorization': `Bearer ${process.env.MELHOR_ENVIOS_TOKEN}`
       },
       body: JSON.stringify({
-        from: {
-          postal_code: process.env.SENDER_CEP // CEP da loja
-        },
-        to: {
-          postal_code: zipCode
-        },
+        from: { postal_code: process.env.SENDER_CEP },
+        to: { postal_code: zipCode },
         products: items.map(item => ({
           name: item.name,
           quantity: item.quantity,
@@ -54,15 +45,15 @@ app.post('/shipping/calculate', async (req, res) => {
 
     const data = await response.json();
 
-    if (!data || !data.results || !data.results[0]) {
+    if (!data || !data[0]) {
       return res.status(500).json({ error: 'Não foi possível calcular o frete' });
     }
 
-    // Retornar o valor do frete e prazo de entrega estimado
-    const shippingCost = data.results[0].price;
-    const deliveryTime = data.results[0].delivery_time; // em dias
-
-    res.json({ shippingCost, deliveryTime });
+    const option = data[0];
+    res.json({
+      shippingCost: option.price,
+      deliveryTime: option.delivery_time
+    });
 
   } catch (error) {
     console.error(error);
@@ -71,61 +62,104 @@ app.post('/shipping/calculate', async (req, res) => {
 });
 
 // ==========================
-// Rota de criação de pagamento PagSeguro
+// Rota de teste para verificar backend
 // ==========================
-app.post('/pagseguro/create_order', async (req, res) => {
-  const { items, customer } = req.body;
+app.get('/checkout', (req, res) => {
+  res.json({ message: 'API do PagSeguro está online' });
+});
+
+// ==========================
+// Rota de criação de ordem e cobrança no PagSeguro (PIX e Cartão)
+// ==========================
+app.post('/create-payment', async (req, res) => {
+  const { items, customer, shipping, paymentMethod } = req.body;
 
   if (!items || !items.length || !customer) {
     return res.status(400).json({ error: 'Itens e dados do cliente são obrigatórios' });
   }
 
+  if (!['CREDIT_CARD', 'PIX'].includes(paymentMethod.type)) {
+    return res.status(400).json({ error: 'Método de pagamento inválido. Use apenas CREDIT_CARD ou PIX.' });
+  }
+
   try {
-    const pagSeguroResponse = await fetch('https://ws.pagseguro.uol.com.br/v2/checkout', {
+    // Criar ordem no PagSeguro
+    const orderResponse = await fetch('https://sandbox.api.pagseguro.com/orders', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/xml; charset=ISO-8859-1'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.PAGSEGURO_TOKEN}`
       },
-      body: `<checkout>
-        <currency>BRL</currency>
-        ${items.map((item, i) => `
-          <item>
-            <id>${i + 1}</id>
-            <description>${item.name}</description>
-            <amount>${item.salePrice.toFixed(2)}</amount>
-            <quantity>${item.quantity}</quantity>
-          </item>
-        `).join('')}
-        <sender>
-          <name>${customer.name}</name>
-          <email>${customer.email}</email>
-          <phone>
-            <areaCode>${customer.phone.slice(0,2)}</areaCode>
-            <number>${customer.phone.slice(2)}</number>
-          </phone>
-        </sender>
-        <shipping>
-          <address>
-            <street>${customer.address}</street>
-            <number>${customer.number || 'S/N'}</number>
-            <complement>${customer.complement || ''}</complement>
-            <district>${customer.district || ''}</district>
-            <postalCode>${customer.zipCode}</postalCode>
-            <city>${customer.city}</city>
-            <state>${customer.state}</state>
-            <country>BRA</country>
-          </address>
-          <type>1</type>
-        </shipping>
-      </checkout>`,
+      body: JSON.stringify({
+        customer: {
+          name: customer.name,
+          email: customer.email,
+          tax_id: customer.cpf, // CPF
+          phones: [{
+            country: '55',
+            area: customer.phone.slice(0, 2),
+            number: customer.phone.slice(2),
+            type: 'MOBILE'
+          }]
+        },
+        items: items.map(item => ({
+          name: item.name,
+          quantity: item.quantity,
+          unit_amount: Math.round(item.salePrice * 100) // em centavos
+        })),
+        shipping: {
+          address: {
+            street: customer.address,
+            number: customer.number || 'S/N',
+            complement: customer.complement || '',
+            locality: customer.district || '',
+            city: customer.city,
+            region_code: customer.state,
+            country: 'BRA',
+            postal_code: customer.zipCode
+          },
+          amount: shipping ? Math.round(shipping.cost * 100) : 0
+        }
+      })
     });
 
-    const text = await pagSeguroResponse.text();
-    res.send(text);
+    const orderData = await orderResponse.json();
+
+    if (!orderResponse.ok) {
+      console.error(orderData);
+      return res.status(500).json({ error: 'Erro ao criar ordem no PagSeguro', details: orderData });
+    }
+
+    // Criar cobrança no PagSeguro
+    const chargeResponse = await fetch('https://sandbox.api.pagseguro.com/charges', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.PAGSEGURO_TOKEN}`
+      },
+      body: JSON.stringify({
+        reference_id: orderData.id,
+        description: 'Pagamento Flor do Silêncio',
+        amount: {
+          value: orderData.amount.value,
+          currency: 'BRL'
+        },
+        payment_method: paymentMethod // CREDIT_CARD ou PIX
+      })
+    });
+
+    const chargeData = await chargeResponse.json();
+
+    if (!chargeResponse.ok) {
+      console.error(chargeData);
+      return res.status(500).json({ error: 'Erro ao criar cobrança no PagSeguro', details: chargeData });
+    }
+
+    res.json(chargeData);
 
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Erro ao criar pedido no PagSeguro' });
+    res.status(500).json({ error: 'Erro ao processar pagamento no PagSeguro' });
   }
 });
 
