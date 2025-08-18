@@ -1,7 +1,9 @@
+// server.js
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 require('dotenv').config();
+const fetch = require('node-fetch');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -10,13 +12,13 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // ==========================
-// Rota de cálculo de frete (Melhor Envio)
+// Rota de cálculo de frete (produção com MelhorEnvio)
 // ==========================
 app.post('/shipping/calculate', async (req, res) => {
   const { zipCode, items } = req.body;
 
-  if (!zipCode || !items || !items.length) {
-    return res.status(400).json({ error: 'CEP e itens são obrigatórios' });
+  if (!zipCode || !items?.length) {
+    return res.status(400).json({ error: 'CEP e itens obrigatórios' });
   }
 
   try {
@@ -47,11 +49,9 @@ app.post('/shipping/calculate', async (req, res) => {
       return res.status(500).json({ error: 'Não foi possível calcular o frete' });
     }
 
+    // Retornar a primeira opção de frete (ou você pode mapear todas)
     const option = data[0];
-    res.json({
-      shippingCost: option.price,
-      deliveryTime: option.delivery_time
-    });
+    res.json({ shippingCost: option.price, deliveryTime: option.delivery_time });
 
   } catch (error) {
     console.error(error);
@@ -60,22 +60,17 @@ app.post('/shipping/calculate', async (req, res) => {
 });
 
 // ==========================
-// Rota de criação de ordem no PagSeguro (PIX e Cartão de Crédito)
+// Rota de criação de ordem no PagSeguro
 // ==========================
 app.post('/pagseguro/create_order', async (req, res) => {
   const { items, customer, shipping, paymentMethod } = req.body;
 
-  if (!items || !items.length || !customer) {
-    return res.status(400).json({ error: 'Itens e dados do cliente são obrigatórios' });
-  }
-
-  if (!['CREDIT_CARD', 'PIX'].includes(paymentMethod.type)) {
-    return res.status(400).json({ error: 'Método de pagamento inválido. Use apenas CREDIT_CARD ou PIX.' });
+  if (!items?.length || !customer) {
+    return res.status(400).json({ error: 'Itens e dados do cliente obrigatórios' });
   }
 
   try {
-    // Criar a ordem no PagSeguro
-    const orderResponse = await fetch('https://sandbox.api.pagseguro.com/orders', {
+    const orderResponse = await fetch('https://api.pagseguro.com/orders', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -85,7 +80,7 @@ app.post('/pagseguro/create_order', async (req, res) => {
         customer: {
           name: customer.name,
           email: customer.email,
-          tax_id: customer.cpf,
+          tax_id: customer.cpf || '',
           phones: [{
             country: '55',
             area: customer.phone.slice(0, 2),
@@ -118,11 +113,10 @@ app.post('/pagseguro/create_order', async (req, res) => {
 
     if (!orderResponse.ok) {
       console.error(orderData);
-      return res.status(500).json({ error: 'Erro ao criar ordem no PagSeguro', details: orderData });
+      return res.status(500).json({ error: 'Erro ao criar ordem', details: orderData });
     }
 
-    // Criar a cobrança (charge)
-    const chargeResponse = await fetch('https://sandbox.api.pagseguro.com/charges', {
+    const chargeResponse = await fetch('https://api.pagseguro.com/charges', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -143,10 +137,13 @@ app.post('/pagseguro/create_order', async (req, res) => {
 
     if (!chargeResponse.ok) {
       console.error(chargeData);
-      return res.status(500).json({ error: 'Erro ao criar cobrança no PagSeguro', details: chargeData });
+      return res.status(500).json({ error: 'Erro ao criar cobrança', details: chargeData });
     }
 
-    res.json(chargeData);
+    res.json({
+      payment_url: chargeData.payment?.link || chargeData.payment?.url,
+      chargeId: chargeData.id
+    });
 
   } catch (error) {
     console.error(error);
