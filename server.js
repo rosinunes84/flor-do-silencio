@@ -1,15 +1,15 @@
-require('dotenv').config();
+const functions = require('firebase-functions');
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const { createPayment } = require('./routes/createPayment'); // rota PagSeguro
+const { createPayment } = require('./routes/createPayment'); // sua rota PagSeguro
 
 const app = express();
 
-// Permitir CORS do frontend (Netlify ou qualquer origem para teste)
+// CORS configurado para seu domínio próprio
 app.use(cors({
-  origin: '*', // ou 'https://seu-dominio.netlify.app'
-  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  origin: 'https://www.flordosilencio.com.br', // domínio do frontend
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
@@ -23,9 +23,9 @@ app.post('/shipping/calculate', async (req, res) => {
   try {
     const { cep } = req.body;
 
-    // Mantendo lógica de frete já existente
+    // Lógica de frete simulada (ajuste conforme API real)
     res.json({
-      cost: 25,       // valor do frete em reais
+      cost: 25,        // valor do frete em reais
       delivery_time: 5 // prazo de entrega em dias
     });
   } catch (err) {
@@ -34,5 +34,5 @@ app.post('/shipping/calculate', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
+// Exporta como Cloud Function
+exports.api = functions.https.onRequest(app);
