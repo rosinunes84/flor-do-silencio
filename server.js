@@ -66,7 +66,7 @@ app.post('/shipping/calculate', async (req, res) => {
 });
 
 // ==========================
-// Rota de criação de ordem no PagSeguro
+// Rota de criação de ordem no PagSeguro (corrigida)
 // ==========================
 app.post('/pagseguro/create_order', async (req, res) => {
   const { items, customer, shipping } = req.body;
@@ -76,35 +76,41 @@ app.post('/pagseguro/create_order', async (req, res) => {
 
   try {
     const formData = new URLSearchParams();
+
+    // Itens do pedido
     items.forEach((item, i) => {
       formData.append(`itemId${i + 1}`, item.id);
       formData.append(`itemDescription${i + 1}`, item.name);
-      formData.append(`itemAmount${i + 1}`, (item.salePrice * 100).toFixed(0));
+      formData.append(`itemAmount${i + 1}`, parseFloat(item.amount).toFixed(2));
       formData.append(`itemQuantity${i + 1}`, item.quantity);
     });
 
+    // Frete
     if (shipping && shipping.cost > 0) {
       formData.append(`itemId${items.length + 1}`, 'frete');
       formData.append(`itemDescription${items.length + 1}`, 'Frete');
-      formData.append(`itemAmount${items.length + 1}`, (shipping.cost * 100).toFixed(0));
+      formData.append(`itemAmount${items.length + 1}`, parseFloat(shipping.cost).toFixed(2));
       formData.append(`itemQuantity${items.length + 1}`, 1);
+      formData.append('shippingType', shipping.type || 3); // Adicionado shippingType
     }
 
+    // Dados do cliente
     formData.append('email', process.env.PAGSEGURO_EMAIL);
     formData.append('token', process.env.PAGSEGURO_TOKEN);
     formData.append('currency', 'BRL');
     formData.append('reference', Date.now().toString());
     formData.append('senderName', customer.name);
     formData.append('senderEmail', customer.email);
-    formData.append('senderPhone', customer.phone.replace(/\D/g, ''));
+    formData.append('senderPhone', customer.phone.replace(/\D/g,''));
     formData.append('shippingAddressStreet', customer.address);
     formData.append('shippingAddressNumber', 'S/N');
     formData.append('shippingAddressDistrict', customer.address.split(',')[1] || 'Bairro');
-    formData.append('shippingAddressPostalCode', customer.zipCode.replace(/\D/g, ''));
+    formData.append('shippingAddressPostalCode', customer.zipCode.replace(/\D/g,''));
     formData.append('shippingAddressCity', customer.city || 'Cidade');
     formData.append('shippingAddressState', customer.state || 'UF');
     formData.append('shippingAddressCountry', 'BRA');
 
+    // Requisição PagSeguro
     const response = await fetch('https://ws.pagseguro.uol.com.br/v2/checkout', {
       method: 'POST',
       body: formData.toString(),
