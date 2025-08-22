@@ -1,7 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const fetch = require("node-fetch"); // necessário para Melhor Envio
+const fetch = require("node-fetch"); // ✅ obrigatório para Render
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -31,13 +31,11 @@ app.post("/shipping/calculate", async (req, res) => {
   }
 
   try {
-    // Somar peso total e dimensões
     const totalWeight = items.reduce((sum, i) => sum + (i.weight || 1) * (i.quantity || 1), 0);
     const totalLength = Math.max(...items.map(i => i.length || 20));
     const totalHeight = items.reduce((sum, i) => sum + (i.height || 5), 0);
     const totalWidth = items.reduce((sum, i) => sum + (i.width || 15), 0);
 
-    // Requisição para Melhor Envio
     const response = await fetch("https://www.melhorenvio.com.br/api/v2/me/shipment/calculate", {
       method: "POST",
       headers: {
@@ -58,7 +56,6 @@ app.post("/shipping/calculate", async (req, res) => {
 
     const data = await response.json();
 
-    // Formatar retorno
     const filtered = data.map(option => ({
       name: option.service.name,
       price: parseFloat(option.price),
@@ -85,34 +82,19 @@ app.post("/pagseguro/create_order", async (req, res) => {
   }
 
   try {
-    // Compatibilidade fetch para Node < 18
-    let fetchFn;
-    if (typeof globalThis.fetch === "function") {
-      fetchFn = globalThis.fetch;
-    } else {
-      fetchFn = require("node-fetch");
-    }
-    const fetch = (...args) => fetchFn(...args);
-
     const formData = new URLSearchParams();
 
     items.forEach((item, i) => {
       formData.append(`itemId${i + 1}`, item.id);
       formData.append(`itemDescription${i + 1}`, item.name);
-      formData.append(
-        `itemAmount${i + 1}`,
-        parseFloat(item.amount).toFixed(2)
-      );
+      formData.append(`itemAmount${i + 1}`, parseFloat(item.amount).toFixed(2));
       formData.append(`itemQuantity${i + 1}`, item.quantity);
     });
 
     if (shipping?.cost > 0) {
       formData.append(`itemId${items.length + 1}`, "frete");
       formData.append(`itemDescription${items.length + 1}`, "Frete");
-      formData.append(
-        `itemAmount${items.length + 1}`,
-        parseFloat(shipping.cost).toFixed(2)
-      );
+      formData.append(`itemAmount${items.length + 1}`, parseFloat(shipping.cost).toFixed(2));
       formData.append(`itemQuantity${items.length + 1}`, 1);
       formData.append("shippingType", shipping.type || 1);
     }
@@ -123,40 +105,20 @@ app.post("/pagseguro/create_order", async (req, res) => {
     formData.append("reference", Date.now().toString());
     formData.append("senderName", customer.name);
     formData.append("senderEmail", customer.email);
-    formData.append(
-      "senderPhone",
-      customer.phone.replace(/\D/g, "").slice(0, 11)
-    );
-    formData.append(
-      "shippingAddressStreet",
-      customer.address.split(",")[0] || "Rua Teste"
-    );
-    formData.append(
-      "shippingAddressNumber",
-      customer.address.split(",")[1]?.trim() || "S/N"
-    );
-    formData.append(
-      "shippingAddressDistrict",
-      customer.address.split(",")[1]?.trim() || "Bairro"
-    );
-    formData.append(
-      "shippingAddressPostalCode",
-      customer.zipCode.replace(/\D/g, "")
-    );
+    formData.append("senderPhone", customer.phone.replace(/\D/g, "").slice(0, 11));
+    formData.append("shippingAddressStreet", customer.address.split(",")[0] || "Rua Teste");
+    formData.append("shippingAddressNumber", customer.address.split(",")[1]?.trim() || "S/N");
+    formData.append("shippingAddressDistrict", customer.address.split(",")[1]?.trim() || "Bairro");
+    formData.append("shippingAddressPostalCode", customer.zipCode.replace(/\D/g, ""));
     formData.append("shippingAddressCity", customer.city || "Cidade");
     formData.append("shippingAddressState", customer.state || "UF");
     formData.append("shippingAddressCountry", "BRA");
 
-    const response = await fetch(
-      "https://ws.pagseguro.uol.com.br/v2/checkout",
-      {
-        method: "POST",
-        body: formData.toString(),
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        },
-      }
-    );
+    const response = await fetch("https://ws.pagseguro.uol.com.br/v2/checkout", {
+      method: "POST",
+      body: formData.toString(),
+      headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+    });
 
     const text = await response.text();
     const checkoutCodeMatch = text.match(/<code>(.*)<\/code>/);
