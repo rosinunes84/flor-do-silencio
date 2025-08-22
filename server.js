@@ -2,13 +2,8 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 
-// Compatibilidade do fetch (Node >=18 usa global, senão importa node-fetch)
-let fetch;
-if (typeof globalThis.fetch === "function") {
-  fetch = globalThis.fetch;
-} else {
-  fetch = require("node-fetch");
-}
+// Usar node-fetch de forma compatível
+const fetch = require("node-fetch"); // Funciona em Node 16+, Node 18+ também aceita, mas é seguro usar node-fetch
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -31,11 +26,6 @@ app.get("/status", (req, res) => {
 // Cálculo de frete (MelhorEnvio) - Retornando apenas PAC e SEDEX
 // ==========================
 app.post("/shipping/calculate", async (req, res) => {
-  const authHeader = req.headers["authorization"];
-  if (!authHeader || authHeader !== `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`) {
-    return res.status(401).json({ error: "Unauthenticated." });
-  }
-
   const { zipCode, items } = req.body;
 
   if (!zipCode || !items?.length) {
@@ -69,7 +59,7 @@ app.post("/shipping/calculate", async (req, res) => {
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
-          Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`,
+          Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`, // Token válido
         },
         body: JSON.stringify(payload),
       }
