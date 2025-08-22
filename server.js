@@ -1,7 +1,6 @@
 // server.js
 require("dotenv").config();
 const express = require("express");
-const fetch = require("node-fetch");
 const cors = require("cors");
 
 const app = express();
@@ -9,7 +8,7 @@ const PORT = process.env.PORT || 4000;
 
 // Middlewares
 app.use(cors());
-app.use(express.json()); // Substitui body-parser
+app.use(express.json());
 
 // ==========================
 // Status do servidor
@@ -89,7 +88,6 @@ app.post("/pagseguro/create_order", async (req, res) => {
   try {
     const formData = new URLSearchParams();
 
-    // Itens do pedido
     items.forEach((item, i) => {
       formData.append(`itemId${i + 1}`, item.id);
       formData.append(`itemDescription${i + 1}`, item.name);
@@ -97,7 +95,6 @@ app.post("/pagseguro/create_order", async (req, res) => {
       formData.append(`itemQuantity${i + 1}`, item.quantity);
     });
 
-    // Frete
     if (shipping?.cost > 0) {
       formData.append(`itemId${items.length + 1}`, "frete");
       formData.append(`itemDescription${items.length + 1}`, "Frete");
@@ -106,7 +103,6 @@ app.post("/pagseguro/create_order", async (req, res) => {
       formData.append("shippingType", shipping.type || 3);
     }
 
-    // Dados do cliente
     formData.append("email", process.env.PAGSEGURO_EMAIL);
     formData.append("token", process.env.PAGSEGURO_TOKEN);
     formData.append("currency", "BRL");
