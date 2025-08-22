@@ -31,6 +31,11 @@ app.get("/status", (req, res) => {
 // Cálculo de frete (MelhorEnvio) - Retornando apenas PAC e SEDEX
 // ==========================
 app.post("/shipping/calculate", async (req, res) => {
+  const authHeader = req.headers["authorization"];
+  if (!authHeader || authHeader !== `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`) {
+    return res.status(401).json({ error: "Unauthenticated." });
+  }
+
   const { zipCode, items } = req.body;
 
   if (!zipCode || !items?.length) {
@@ -65,23 +70,12 @@ app.post("/shipping/calculate", async (req, res) => {
           "Content-Type": "application/json",
           Accept: "application/json",
           Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`,
-          "User-Agent": "LojaFlorSilencio (rafael@email.com)",
         },
         body: JSON.stringify(payload),
       }
     );
 
-    // Recebe como texto primeiro
-    const text = await response.text();
-
-    // Tenta parsear JSON
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      console.error("❌ Resposta inesperada do Melhor Envio:", text);
-      return res.status(500).json({ error: "Resposta inválida do Melhor Envio", details: text });
-    }
+    const data = await response.json();
 
     if (!response.ok) {
       return res
