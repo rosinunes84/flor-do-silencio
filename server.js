@@ -1,7 +1,6 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const fetch = require("node-fetch"); // obrigatório para Render
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -21,7 +20,7 @@ app.get("/status", (req, res) => {
 });
 
 // ==========================
-// Cálculo de frete via Melhor Envio
+// Cálculo de frete simulado
 // ==========================
 app.post("/shipping/calculate", async (req, res) => {
   const { zipCode, items } = req.body;
@@ -31,48 +30,14 @@ app.post("/shipping/calculate", async (req, res) => {
   }
 
   try {
-    const totalWeight = items.reduce((sum, i) => sum + (i.weight || 1) * (i.quantity || 1), 0);
-    const totalLength = Math.max(...items.map(i => i.length || 20));
-    const totalHeight = items.reduce((sum, i) => sum + (i.height || 5), 0);
-    const totalWidth = items.reduce((sum, i) => sum + (i.width || 15), 0);
+    // Simulação de frete fixo
+    const simulatedShipping = {
+      name: "Sedex Simulado",
+      price: 22.90,
+      delivery_time: 5, // dias úteis
+    };
 
-    const response = await fetch("https://www.melhorenvio.com.br/api/v2/me/shipment/calculate", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`
-      },
-      body: JSON.stringify({
-        from: { postal_code: process.env.SENDER_CEP },
-        to: { postal_code: zipCode },
-        parcels: [{
-          weight: totalWeight,
-          length: totalLength,
-          height: totalHeight,
-          width: totalWidth
-        }]
-      })
-    });
-
-    const data = await response.json();
-
-    // Se der erro de autenticação
-    if (data.message && data.message.toLowerCase().includes("unauthenticated")) {
-      return res.status(401).json({ error: "Token do Melhor Envio inválido ou expirado", raw: data });
-    }
-
-    // Se não vier nenhuma opção de frete
-    if (!Array.isArray(data) || data.length === 0) {
-      return res.status(200).json({ warning: "Nenhuma opção de frete retornada. Verifique CEP, peso ou token.", raw: data });
-    }
-
-    const filtered = data.map(option => ({
-      name: option.service.name,
-      price: parseFloat(option.price),
-      delivery_time: option.deadline
-    }));
-
-    res.json(filtered);
+    res.json([simulatedShipping]);
 
   } catch (error) {
     console.error("❌ Erro ao calcular frete:", error);
@@ -86,7 +51,9 @@ app.post("/shipping/calculate", async (req, res) => {
 app.post("/pagseguro/create_order", async (req, res) => {
   const { items, customer, shipping } = req.body;
   if (!items?.length || !customer) {
-    return res.status(400).json({ error: "Itens e dados do cliente obrigatórios" });
+    return res
+      .status(400)
+      .json({ error: "Itens e dados do cliente obrigatórios" });
   }
 
   try {
@@ -145,5 +112,5 @@ app.post("/pagseguro/create_order", async (req, res) => {
 });
 
 app.listen(PORT, () =>
-  console.log(`🚀 Server rodando na porta ${PORT}`)
+  console.log(`🚀 Server running on port ${PORT}`)
 );
