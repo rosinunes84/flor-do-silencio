@@ -64,10 +64,10 @@ app.post('/shipping/calculate', async (req, res) => {
     // Log completo da resposta da API do MelhorEnvio
     console.log('Resposta MelhorEnvio:', JSON.stringify(data, null, 2));
 
-    if (!data || data.error || !data[0]) {
+    if (!data || data.error || !Array.isArray(data) || !data[0]) {
       return res.status(500).json({
         error: 'Não foi possível calcular o frete',
-        melhorEnvioResponse: data
+        melhorEnvioResponse: data // retorna a resposta para debug
       });
     }
 
