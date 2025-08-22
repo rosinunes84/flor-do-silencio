@@ -1,7 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const { calcularPrecoPrazo } = require("correios-brasil");
+const fetch = require("node-fetch"); // compatível Node <18
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -21,7 +21,7 @@ app.get("/status", (req, res) => {
 });
 
 // ==========================
-// Cálculo de frete (Correios) - PAC e SEDEX
+// Cálculo de frete via Melhor Envio
 // ==========================
 app.post("/shipping/calculate", async (req, res) => {
   const { zipCode, items } = req.body;
@@ -32,43 +32,53 @@ app.post("/shipping/calculate", async (req, res) => {
 
   try {
     // Somar peso total e dimensões
-    const totalWeight = items.reduce(
-      (sum, i) => sum + (i.weight || 1) * (i.quantity || 1),
-      0
-    );
-    const totalLength = Math.max(...items.map((i) => i.length || 20));
+    const totalWeight = items.reduce((sum, i) => sum + (i.weight || 1) * (i.quantity || 1), 0);
+    const totalLength = Math.max(...items.map(i => i.length || 20));
     const totalHeight = items.reduce((sum, i) => sum + (i.height || 5), 0);
     const totalWidth = items.reduce((sum, i) => sum + (i.width || 15), 0);
 
-    console.log("📦 Calculando frete:", {
-      totalWeight,
-      totalLength,
-      totalHeight,
-      totalWidth,
-      zipCode,
+    // Monta payload conforme documentação Melhor Envio
+    const payload = {
+      from: {
+        postal_code: process.env.SENDER_CEP.replace(/\D/g, "")
+      },
+      to: {
+        postal_code: zipCode.replace(/\D/g, "")
+      },
+      items: items.map(i => ({
+        width: i.width || 15,
+        height: i.height || 5,
+        length: i.length || 20,
+        weight: i.weight || 1,
+        quantity: i.quantity || 1,
+      }))
+    };
+
+    const response = await fetch("https://www.melhorenvio.com.br/api/v2/me/shipment/calculate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`
+      },
+      body: JSON.stringify(payload)
     });
 
-    const servicos = ["04014", "04510"]; // SEDEX e PAC
-    const result = await calcularPrecoPrazo({
-      nCdServico: servicos,
-      sCepOrigem: process.env.SENDER_CEP,
-      sCepDestino: zipCode,
-      nVlPeso: totalWeight.toString(),
-      nCdFormato: 1,
-      nVlComprimento: totalLength,
-      nVlAltura: totalHeight,
-      nVlLargura: totalWidth,
-      nVlDiametro: 0,
-    });
+    const result = await response.json();
 
-    const filtered = result.map((option) => ({
-      name: option.Servico === "04014" ? "SEDEX" : "PAC",
-      price: parseFloat(option.Valor.replace(",", ".")) || 0,
-      delivery_time: option.PrazoEntrega,
-      error: option.Erro !== "0" ? option.MsgErro : null,
+    if (!Array.isArray(result)) {
+      return res.status(500).json({ error: "Erro ao calcular frete", details: JSON.stringify(result) });
+    }
+
+    // Retorna apenas serviços disponíveis com preço e prazo
+    const filtered = result.map(option => ({
+      name: option.service_name,
+      price: parseFloat(option.shipping_price) || 0,
+      delivery_time: option.shipping_deadline || 0,
+      error: option.error || null
     }));
 
     res.json(filtered);
+
   } catch (error) {
     console.error("❌ Erro ao calcular frete:", error);
     res.status(500).json({ error: "Erro interno do servidor", details: error.message });
@@ -85,15 +95,6 @@ app.post("/pagseguro/create_order", async (req, res) => {
   }
 
   try {
-    // Compatibilidade fetch para Node < 18
-    let fetchFn;
-    if (typeof globalThis.fetch === "function") {
-      fetchFn = globalThis.fetch;
-    } else {
-      fetchFn = require("node-fetch");
-    }
-    const fetch = (...args) => fetchFn(...args);
-
     const formData = new URLSearchParams();
 
     items.forEach((item, i) => {
@@ -126,12 +127,6 @@ app.post("/pagseguro/create_order", async (req, res) => {
     formData.append("shippingAddressState", customer.state || "UF");
     formData.append("shippingAddressCountry", "BRA");
 
-    console.log("💳 Criando pedido PagSeguro:", {
-      items,
-      shipping,
-      customerEmail: customer.email,
-    });
-
     const response = await fetch("https://ws.pagseguro.uol.com.br/v2/checkout", {
       method: "POST",
       body: formData.toString(),
@@ -140,9 +135,7 @@ app.post("/pagseguro/create_order", async (req, res) => {
 
     const text = await response.text();
     const checkoutCodeMatch = text.match(/<code>(.*)<\/code>/);
-    const checkoutUrl = checkoutCodeMatch
-      ? `https://pagseguro.uol.com.br/v2/checkout/payment.html?code=${checkoutCodeMatch[1]}`
-      : null;
+    const checkoutUrl = checkoutCodeMatch ? `https://pagseguro.uol.com.br/v2/checkout/payment.html?code=${checkoutCodeMatch[1]}` : null;
 
     res.json({ payment_url: checkoutUrl });
   } catch (error) {
