@@ -1,7 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const fetch = require("node-fetch"); // ✅ obrigatório para Render
+const fetch = require("node-fetch"); // ✅ necessário para Node < 18
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -31,6 +31,7 @@ app.post("/shipping/calculate", async (req, res) => {
   }
 
   try {
+    // Calcular peso total e dimensões
     const totalWeight = items.reduce((sum, i) => sum + (i.weight || 1) * (i.quantity || 1), 0);
     const totalLength = Math.max(...items.map(i => i.length || 20));
     const totalHeight = items.reduce((sum, i) => sum + (i.height || 5), 0);
@@ -76,9 +77,7 @@ app.post("/shipping/calculate", async (req, res) => {
 app.post("/pagseguro/create_order", async (req, res) => {
   const { items, customer, shipping } = req.body;
   if (!items?.length || !customer) {
-    return res
-      .status(400)
-      .json({ error: "Itens e dados do cliente obrigatórios" });
+    return res.status(400).json({ error: "Itens e dados do cliente obrigatórios" });
   }
 
   try {
@@ -129,13 +128,8 @@ app.post("/pagseguro/create_order", async (req, res) => {
     res.json({ payment_url: checkoutUrl });
   } catch (error) {
     console.error("❌ Erro PagSeguro:", error);
-    res.status(500).json({
-      error: "Erro ao criar pedido no PagSeguro",
-      details: error.message,
-    });
+    res.status(500).json({ error: "Erro ao criar pedido no PagSeguro", details: error.message });
   }
 });
 
-app.listen(PORT, () =>
-  console.log(`🚀 Server running on port ${PORT}`)
-);
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
