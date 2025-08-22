@@ -1,6 +1,6 @@
-// server.js
 require("dotenv").config();
 const express = require("express");
+const fetch = require("node-fetch");
 const cors = require("cors");
 
 const app = express();
@@ -22,7 +22,7 @@ app.get("/status", (req, res) => {
 });
 
 // ==========================
-// Cálculo de frete (MelhorEnvio)
+// Cálculo de frete (MelhorEnvio) - apenas opções válidas
 // ==========================
 app.post("/shipping/calculate", async (req, res) => {
   const { zipCode, items } = req.body;
@@ -38,7 +38,7 @@ app.post("/shipping/calculate", async (req, res) => {
       products: items.map((item) => ({
         name: item.name || "Produto",
         quantity: item.quantity || 1,
-        unitary_value: parseFloat(item.salePrice || 50).toFixed(2),
+        unitary_value: item.salePrice || 50,
         weight: item.weight || 1,
         length: item.length || 20,
         height: item.height || 5,
@@ -49,18 +49,15 @@ app.post("/shipping/calculate", async (req, res) => {
 
     console.log("📦 Calculando frete:", payload);
 
-    const response = await fetch(
-      "https://sandbox.melhorenvio.com.br/api/v2/me/shipment/calculate",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`
-        },
-        body: JSON.stringify(payload)
-      }
-    );
+    const response = await fetch("https://sandbox.melhorenvio.com.br/api/v2/me/shipment/calculate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`
+      },
+      body: JSON.stringify(payload)
+    });
 
     const data = await response.json();
     console.log("📬 Resposta MelhorEnvio:", data);
@@ -69,7 +66,17 @@ app.post("/shipping/calculate", async (req, res) => {
       return res.status(response.status).json({ error: data.message || "Erro ao calcular frete" });
     }
 
-    res.json(data);
+    // Filtrar apenas opções válidas (sem "error") e simplificar
+    const validOptions = data
+      .filter(option => !option.error)
+      .map(option => ({
+        name: option.name,
+        price: parseFloat(option.price),
+        delivery_time: option.delivery_time,
+        company: option.company?.name
+      }));
+
+    res.json(validOptions);
   } catch (error) {
     console.error("❌ Erro ao calcular frete:", error);
     res.status(500).json({ error: "Erro interno do servidor", details: error.message });
@@ -88,6 +95,7 @@ app.post("/pagseguro/create_order", async (req, res) => {
   try {
     const formData = new URLSearchParams();
 
+    // Itens do pedido
     items.forEach((item, i) => {
       formData.append(`itemId${i + 1}`, item.id);
       formData.append(`itemDescription${i + 1}`, item.name);
@@ -95,6 +103,7 @@ app.post("/pagseguro/create_order", async (req, res) => {
       formData.append(`itemQuantity${i + 1}`, item.quantity);
     });
 
+    // Frete
     if (shipping?.cost > 0) {
       formData.append(`itemId${items.length + 1}`, "frete");
       formData.append(`itemDescription${items.length + 1}`, "Frete");
@@ -103,6 +112,7 @@ app.post("/pagseguro/create_order", async (req, res) => {
       formData.append("shippingType", shipping.type || 3);
     }
 
+    // Dados do cliente
     formData.append("email", process.env.PAGSEGURO_EMAIL);
     formData.append("token", process.env.PAGSEGURO_TOKEN);
     formData.append("currency", "BRL");
