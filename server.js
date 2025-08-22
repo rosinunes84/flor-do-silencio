@@ -2,14 +2,13 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 
-// Compatibilidade do fetch: usa nativo se existir, senão usa node-fetch
-let fetchFn;
-try {
-  fetchFn = fetch; // se Node >= 18
-} catch (e) {
-  fetchFn = require("node-fetch"); // se Node 16
+// Compatibilidade do fetch (Node >=18 usa global, senão importa node-fetch)
+let fetch;
+if (typeof globalThis.fetch === "function") {
+  fetch = globalThis.fetch;
+} else {
+  fetch = require("node-fetch");
 }
-const fetch = (...args) => fetchFn(...args);
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -52,10 +51,7 @@ app.post("/shipping/calculate", async (req, res) => {
         width: item.width || 15,
       })),
       options: {
-        insurance_value: items.reduce(
-          (sum, i) => sum + (i.salePrice || 0),
-          0
-        ),
+        insurance_value: items.reduce((sum, i) => sum + (i.salePrice || 0), 0),
       },
     };
 
