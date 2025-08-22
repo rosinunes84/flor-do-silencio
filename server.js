@@ -2,8 +2,14 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 
-// Usar node-fetch de forma compatível
-const fetch = require("node-fetch"); // Funciona em Node 16+, Node 18+ também aceita, mas é seguro usar node-fetch
+// Compatibilidade do fetch
+let fetch;
+try {
+  fetch = globalThis.fetch; // Node >=18
+  if (!fetch) throw new Error("fetch não definido");
+} catch (e) {
+  fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args));
+}
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -23,7 +29,7 @@ app.get("/status", (req, res) => {
 });
 
 // ==========================
-// Cálculo de frete (MelhorEnvio) - Retornando apenas PAC e SEDEX
+// Cálculo de frete (MelhorEnvio)
 // ==========================
 app.post("/shipping/calculate", async (req, res) => {
   const { zipCode, items } = req.body;
@@ -59,7 +65,7 @@ app.post("/shipping/calculate", async (req, res) => {
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
-          Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`, // Token válido
+          Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`,
         },
         body: JSON.stringify(payload),
       }
@@ -90,14 +96,12 @@ app.post("/shipping/calculate", async (req, res) => {
     res.json(filtered);
   } catch (error) {
     console.error("❌ Erro ao calcular frete:", error);
-    res
-      .status(500)
-      .json({ error: "Erro interno do servidor", details: error.message });
+    res.status(500).json({ error: "Erro interno do servidor", details: error.message });
   }
 });
 
 // ==========================
-// Criação de ordem no PagSeguro (produção)
+// Criação de ordem no PagSeguro
 // ==========================
 app.post("/pagseguro/create_order", async (req, res) => {
   const { items, customer, shipping } = req.body;
@@ -113,20 +117,14 @@ app.post("/pagseguro/create_order", async (req, res) => {
     items.forEach((item, i) => {
       formData.append(`itemId${i + 1}`, item.id);
       formData.append(`itemDescription${i + 1}`, item.name);
-      formData.append(
-        `itemAmount${i + 1}`,
-        parseFloat(item.amount).toFixed(2)
-      );
+      formData.append(`itemAmount${i + 1}`, parseFloat(item.amount).toFixed(2));
       formData.append(`itemQuantity${i + 1}`, item.quantity);
     });
 
     if (shipping?.cost > 0) {
       formData.append(`itemId${items.length + 1}`, "frete");
       formData.append(`itemDescription${items.length + 1}`, "Frete");
-      formData.append(
-        `itemAmount${items.length + 1}`,
-        parseFloat(shipping.cost).toFixed(2)
-      );
+      formData.append(`itemAmount${items.length + 1}`, parseFloat(shipping.cost).toFixed(2));
       formData.append(`itemQuantity${items.length + 1}`, 1);
       formData.append("shippingType", shipping.type || 1);
     }
@@ -137,26 +135,11 @@ app.post("/pagseguro/create_order", async (req, res) => {
     formData.append("reference", Date.now().toString());
     formData.append("senderName", customer.name);
     formData.append("senderEmail", customer.email);
-    formData.append(
-      "senderPhone",
-      customer.phone.replace(/\D/g, "").slice(0, 11)
-    );
-    formData.append(
-      "shippingAddressStreet",
-      customer.address.split(",")[0] || "Rua Teste"
-    );
-    formData.append(
-      "shippingAddressNumber",
-      customer.address.split(",")[1]?.trim() || "S/N"
-    );
-    formData.append(
-      "shippingAddressDistrict",
-      customer.address.split(",")[1]?.trim() || "Bairro"
-    );
-    formData.append(
-      "shippingAddressPostalCode",
-      customer.zipCode.replace(/\D/g, "")
-    );
+    formData.append("senderPhone", customer.phone.replace(/\D/g, "").slice(0, 11));
+    formData.append("shippingAddressStreet", customer.address.split(",")[0] || "Rua Teste");
+    formData.append("shippingAddressNumber", customer.address.split(",")[1]?.trim() || "S/N");
+    formData.append("shippingAddressDistrict", customer.address.split(",")[1]?.trim() || "Bairro");
+    formData.append("shippingAddressPostalCode", customer.zipCode.replace(/\D/g, ""));
     formData.append("shippingAddressCity", customer.city || "Cidade");
     formData.append("shippingAddressState", customer.state || "UF");
     formData.append("shippingAddressCountry", "BRA");
@@ -166,10 +149,7 @@ app.post("/pagseguro/create_order", async (req, res) => {
       {
         method: "POST",
         body: formData.toString(),
-        headers: {
-          "Content-Type":
-            "application/x-www-form-urlencoded; charset=UTF-8",
-        },
+        headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
       }
     );
 
@@ -182,13 +162,8 @@ app.post("/pagseguro/create_order", async (req, res) => {
     res.json({ payment_url: checkoutUrl });
   } catch (error) {
     console.error("❌ Erro PagSeguro:", error);
-    res.status(500).json({
-      error: "Erro ao criar pedido no PagSeguro",
-      details: error.message,
-    });
+    res.status(500).json({ error: "Erro ao criar pedido no PagSeguro", details: error.message });
   }
 });
 
-app.listen(PORT, () =>
-  console.log(`🚀 Server running on port ${PORT}`)
-);
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
