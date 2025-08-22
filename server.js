@@ -6,7 +6,6 @@ const cors = require("cors");
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// Middlewares
 app.use(cors());
 app.use(express.json());
 
@@ -22,7 +21,7 @@ app.get("/status", (req, res) => {
 });
 
 // ==========================
-// Cálculo de frete (MelhorEnvio) - apenas opções válidas
+// Cálculo de frete (MelhorEnvio) - Retornando apenas PAC e SEDEX
 // ==========================
 app.post("/shipping/calculate", async (req, res) => {
   const { zipCode, items } = req.body;
@@ -49,34 +48,36 @@ app.post("/shipping/calculate", async (req, res) => {
 
     console.log("📦 Calculando frete:", payload);
 
-    const response = await fetch("https://sandbox.melhorenvio.com.br/api/v2/me/shipment/calculate", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`
-      },
-      body: JSON.stringify(payload)
-    });
+    const response = await fetch(
+      "https://www.melhorenvio.com.br/api/v2/me/shipment/calculate",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`
+        },
+        body: JSON.stringify(payload)
+      }
+    );
 
     const data = await response.json();
-    console.log("📬 Resposta MelhorEnvio:", data);
 
     if (!response.ok) {
       return res.status(response.status).json({ error: data.message || "Erro ao calcular frete" });
     }
 
-    // Filtrar apenas opções válidas (sem "error") e simplificar
-    const validOptions = data
-      .filter(option => !option.error)
-      .map(option => ({
-        name: option.name,
-        price: parseFloat(option.price),
-        delivery_time: option.delivery_time,
-        company: option.company?.name
-      }));
+    // Filtrar apenas PAC e SEDEX
+    const filtered = data.filter(
+      (option) => option.name.toUpperCase() === "PAC" || option.name.toUpperCase() === "SEDEX"
+    ).map(option => ({
+      name: option.name,
+      price: parseFloat(option.price || 0),
+      delivery_time: option.delivery_time,
+      company: option.company?.name || ""
+    }));
 
-    res.json(validOptions);
+    res.json(filtered);
   } catch (error) {
     console.error("❌ Erro ao calcular frete:", error);
     res.status(500).json({ error: "Erro interno do servidor", details: error.message });
@@ -84,7 +85,7 @@ app.post("/shipping/calculate", async (req, res) => {
 });
 
 // ==========================
-// Criação de ordem no PagSeguro
+// Criação de ordem no PagSeguro (produção)
 // ==========================
 app.post("/pagseguro/create_order", async (req, res) => {
   const { items, customer, shipping } = req.body;
@@ -95,7 +96,6 @@ app.post("/pagseguro/create_order", async (req, res) => {
   try {
     const formData = new URLSearchParams();
 
-    // Itens do pedido
     items.forEach((item, i) => {
       formData.append(`itemId${i + 1}`, item.id);
       formData.append(`itemDescription${i + 1}`, item.name);
@@ -103,47 +103,48 @@ app.post("/pagseguro/create_order", async (req, res) => {
       formData.append(`itemQuantity${i + 1}`, item.quantity);
     });
 
-    // Frete
     if (shipping?.cost > 0) {
       formData.append(`itemId${items.length + 1}`, "frete");
       formData.append(`itemDescription${items.length + 1}`, "Frete");
       formData.append(`itemAmount${items.length + 1}`, parseFloat(shipping.cost).toFixed(2));
       formData.append(`itemQuantity${items.length + 1}`, 1);
-      formData.append("shippingType", shipping.type || 3);
+      formData.append("shippingType", shipping.type || 1);
     }
 
-    // Dados do cliente
     formData.append("email", process.env.PAGSEGURO_EMAIL);
     formData.append("token", process.env.PAGSEGURO_TOKEN);
     formData.append("currency", "BRL");
     formData.append("reference", Date.now().toString());
     formData.append("senderName", customer.name);
     formData.append("senderEmail", customer.email);
-    formData.append("senderPhone", customer.phone.replace(/\D/g, ""));
-    formData.append("shippingAddressStreet", customer.address);
-    formData.append("shippingAddressNumber", "S/N");
-    formData.append("shippingAddressDistrict", customer.address.split(",")[1] || "Bairro");
+    formData.append("senderPhone", customer.phone.replace(/\D/g, "").slice(0, 11));
+    formData.append("shippingAddressStreet", customer.address.split(",")[0] || "Rua Teste");
+    formData.append("shippingAddressNumber", customer.address.split(",")[1]?.trim() || "S/N");
+    formData.append("shippingAddressDistrict", customer.address.split(",")[1]?.trim() || "Bairro");
     formData.append("shippingAddressPostalCode", customer.zipCode.replace(/\D/g, ""));
     formData.append("shippingAddressCity", customer.city || "Cidade");
     formData.append("shippingAddressState", customer.state || "UF");
     formData.append("shippingAddressCountry", "BRA");
 
-    const response = await fetch("https://ws.pagseguro.uol.com.br/v2/checkout", {
-      method: "POST",
-      body: formData.toString(),
-      headers: { "Content-Type": "application/x-www-form-urlencoded" }
-    });
+    const response = await fetch(
+      "https://ws.pagseguro.uol.com.br/v2/checkout",
+      {
+        method: "POST",
+        body: formData.toString(),
+        headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" }
+      }
+    );
 
     const text = await response.text();
     const checkoutCodeMatch = text.match(/<code>(.*)<\/code>/);
     const checkoutUrl = checkoutCodeMatch
-      ? `https://sandbox.pagseguro.uol.com.br/v2/checkout/payment.html?code=${checkoutCodeMatch[1]}`
+      ? `https://pagseguro.uol.com.br/v2/checkout/payment.html?code=${checkoutCodeMatch[1]}`
       : null;
 
     res.json({ payment_url: checkoutUrl });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Erro ao criar pedido no PagSeguro" });
+    console.error("❌ Erro PagSeguro:", error);
+    res.status(500).json({ error: "Erro ao criar pedido no PagSeguro", details: error.message });
   }
 });
 
