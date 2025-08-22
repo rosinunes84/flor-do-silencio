@@ -1,91 +1,86 @@
-const express = require('express');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-require('dotenv').config();
-const fetch = require('node-fetch');
+// server.js
+require("dotenv").config();
+const express = require("express");
+const fetch = require("node-fetch");
+const cors = require("cors");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+// Middlewares
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json()); // Substitui body-parser
 
 // ==========================
-// Rota de status (saúde do servidor)
+// Status do servidor
 // ==========================
-app.get('/status', (req, res) => {
+app.get("/status", (req, res) => {
   res.json({
-    status: 'ok',
-    message: 'Backend rodando no Render 🚀',
+    status: "ok",
+    message: "Backend rodando 🚀",
     timestamp: new Date().toISOString()
   });
 });
 
 // ==========================
-// Rota de cálculo de frete (MelhorEnvio) - DEBUG
+// Cálculo de frete (MelhorEnvio)
 // ==========================
-app.post('/shipping/calculate', async (req, res) => {
+app.post("/shipping/calculate", async (req, res) => {
   const { zipCode, items } = req.body;
+
   if (!zipCode || !items?.length) {
-    return res.status(400).json({ error: 'CEP e itens obrigatórios' });
+    return res.status(400).json({ error: "CEP e itens obrigatórios" });
   }
 
   try {
-    // Log para debug
-    console.log('Calculando frete com:', {
-      from: process.env.SENDER_CEP,
-      to: zipCode,
-      products: items
-    });
+    const payload = {
+      from: { postal_code: process.env.SENDER_CEP },
+      to: { postal_code: zipCode },
+      products: items.map((item) => ({
+        name: item.name || "Produto",
+        quantity: item.quantity || 1,
+        unitary_value: item.salePrice || 50,
+        weight: item.weight || 1,
+        length: item.length || 20,
+        height: item.height || 5,
+        width: item.width || 15
+      })),
+      options: { insurance_value: items.reduce((sum, i) => sum + (i.salePrice || 0), 0) }
+    };
 
-    const response = await fetch('https://www.melhorenvio.com.br/api/v2/me/shipment/calculate', {
-      method: 'POST',
+    console.log("📦 Calculando frete:", payload);
+
+    const response = await fetch("https://sandbox.melhorenvio.com.br/api/v2/me/shipment/calculate", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`
       },
-      body: JSON.stringify({
-        from: { postal_code: process.env.SENDER_CEP },
-        to: { postal_code: zipCode },
-        products: items.map(item => ({
-          name: item.name || 'Produto',
-          quantity: item.quantity,
-          price: item.salePrice || 0,
-          weight: item.weight || 1,
-          length: item.length || 20,
-          height: item.height || 5,
-          width: item.width || 15
-        }))
-      })
+      body: JSON.stringify(payload)
     });
 
     const data = await response.json();
+    console.log("📬 Resposta MelhorEnvio:", data);
 
-    // Log completo da resposta da API do MelhorEnvio
-    console.log('Resposta MelhorEnvio:', JSON.stringify(data, null, 2));
-
-    if (!data || data.error || !Array.isArray(data) || !data[0]) {
-      return res.status(500).json({
-        error: 'Não foi possível calcular o frete',
-        melhorEnvioResponse: data // retorna a resposta para debug
-      });
+    if (!response.ok) {
+      return res.status(response.status).json({ error: data.message || "Erro ao calcular frete" });
     }
 
-    const option = data[0];
-    res.json({ shippingCost: option.price, deliveryTime: option.delivery_time });
+    res.json(data);
   } catch (error) {
-    console.error('Erro ao chamar MelhorEnvio:', error);
-    res.status(500).json({ error: 'Erro ao calcular o frete', details: error.message });
+    console.error("❌ Erro ao calcular frete:", error);
+    res.status(500).json({ error: "Erro interno do servidor" });
   }
 });
 
 // ==========================
-// Rota de criação de ordem no PagSeguro (corrigida)
+// Criação de ordem no PagSeguro
 // ==========================
-app.post('/pagseguro/create_order', async (req, res) => {
+app.post("/pagseguro/create_order", async (req, res) => {
   const { items, customer, shipping } = req.body;
   if (!items?.length || !customer) {
-    return res.status(400).json({ error: 'Itens e dados do cliente obrigatórios' });
+    return res.status(400).json({ error: "Itens e dados do cliente obrigatórios" });
   }
 
   try {
@@ -100,35 +95,34 @@ app.post('/pagseguro/create_order', async (req, res) => {
     });
 
     // Frete
-    if (shipping && shipping.cost > 0) {
-      formData.append(`itemId${items.length + 1}`, 'frete');
-      formData.append(`itemDescription${items.length + 1}`, 'Frete');
+    if (shipping?.cost > 0) {
+      formData.append(`itemId${items.length + 1}`, "frete");
+      formData.append(`itemDescription${items.length + 1}`, "Frete");
       formData.append(`itemAmount${items.length + 1}`, parseFloat(shipping.cost).toFixed(2));
       formData.append(`itemQuantity${items.length + 1}`, 1);
-      formData.append('shippingType', shipping.type || 3); // Adicionado shippingType
+      formData.append("shippingType", shipping.type || 3);
     }
 
     // Dados do cliente
-    formData.append('email', process.env.PAGSEGURO_EMAIL);
-    formData.append('token', process.env.PAGSEGURO_TOKEN);
-    formData.append('currency', 'BRL');
-    formData.append('reference', Date.now().toString());
-    formData.append('senderName', customer.name);
-    formData.append('senderEmail', customer.email);
-    formData.append('senderPhone', customer.phone.replace(/\D/g,''));
-    formData.append('shippingAddressStreet', customer.address);
-    formData.append('shippingAddressNumber', 'S/N');
-    formData.append('shippingAddressDistrict', customer.address.split(',')[1] || 'Bairro');
-    formData.append('shippingAddressPostalCode', customer.zipCode.replace(/\D/g,''));
-    formData.append('shippingAddressCity', customer.city || 'Cidade');
-    formData.append('shippingAddressState', customer.state || 'UF');
-    formData.append('shippingAddressCountry', 'BRA');
+    formData.append("email", process.env.PAGSEGURO_EMAIL);
+    formData.append("token", process.env.PAGSEGURO_TOKEN);
+    formData.append("currency", "BRL");
+    formData.append("reference", Date.now().toString());
+    formData.append("senderName", customer.name);
+    formData.append("senderEmail", customer.email);
+    formData.append("senderPhone", customer.phone.replace(/\D/g, ""));
+    formData.append("shippingAddressStreet", customer.address);
+    formData.append("shippingAddressNumber", "S/N");
+    formData.append("shippingAddressDistrict", customer.address.split(",")[1] || "Bairro");
+    formData.append("shippingAddressPostalCode", customer.zipCode.replace(/\D/g, ""));
+    formData.append("shippingAddressCity", customer.city || "Cidade");
+    formData.append("shippingAddressState", customer.state || "UF");
+    formData.append("shippingAddressCountry", "BRA");
 
-    // Requisição PagSeguro
-    const response = await fetch('https://ws.pagseguro.uol.com.br/v2/checkout', {
-      method: 'POST',
+    const response = await fetch("https://ws.pagseguro.uol.com.br/v2/checkout", {
+      method: "POST",
       body: formData.toString(),
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      headers: { "Content-Type": "application/x-www-form-urlencoded" }
     });
 
     const text = await response.text();
@@ -140,8 +134,8 @@ app.post('/pagseguro/create_order', async (req, res) => {
     res.json({ payment_url: checkoutUrl });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Erro ao criar pedido no PagSeguro' });
+    res.status(500).json({ error: "Erro ao criar pedido no PagSeguro" });
   }
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
