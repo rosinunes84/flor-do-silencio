@@ -28,7 +28,7 @@ app.get("/status", (req, res) => {
 });
 
 // ==========================
-// Cálculo de frete (PagSeguro/Correios) - PAC e SEDEX
+// Cálculo de frete (MelhorEnvio) - Retornando apenas PAC e SEDEX
 // ==========================
 app.post("/shipping/calculate", async (req, res) => {
   const { zipCode, items } = req.body;
@@ -39,46 +39,69 @@ app.post("/shipping/calculate", async (req, res) => {
 
   try {
     const payload = {
-      postalCode: zipCode,
-      items: items.map((item) => ({
-        id: item.id || "1",
-        description: item.name || "Produto",
+      from: { postal_code: process.env.SENDER_CEP },
+      to: { postal_code: zipCode },
+      products: items.map((item) => ({
+        name: item.name || "Produto",
         quantity: item.quantity || 1,
-        amount: parseFloat(item.salePrice || 50).toFixed(2),
+        unitary_value: item.salePrice || 50,
         weight: item.weight || 1,
         length: item.length || 20,
         height: item.height || 5,
         width: item.width || 15,
       })),
+      options: {
+        insurance_value: items.reduce((sum, i) => sum + (i.salePrice || 0), 0),
+      },
     };
 
-    console.log("📦 Calculando frete (PagSeguro):", payload);
+    console.log("📦 Calculando frete:", payload);
 
     const response = await fetch(
-      `https://ws.pagseguro.uol.com.br/shipping/v2/calculations?email=${process.env.PAGSEGURO_EMAIL}&token=${process.env.PAGSEGURO_TOKEN}`,
+      "https://www.melhorenvio.com.br/api/v2/me/shipment/calculate",
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`,
+          "User-Agent": "LojaFlorSilencio (rafael@email.com)",
         },
         body: JSON.stringify(payload),
       }
     );
 
-    const data = await response.json();
+    // Recebe como texto primeiro
+    const text = await response.text();
+
+    // Tenta parsear JSON
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      console.error("❌ Resposta inesperada do Melhor Envio:", text);
+      return res.status(500).json({ error: "Resposta inválida do Melhor Envio", details: text });
+    }
 
     if (!response.ok) {
       return res
         .status(response.status)
-        .json({ error: data.error || "Erro ao calcular frete" });
+        .json({ error: data.message || "Erro ao calcular frete" });
     }
 
-    // filtrar PAC e SEDEX
-    const filtered = (data.services || []).filter(
-      (option) =>
-        option.name?.toUpperCase() === "PAC" ||
-        option.name?.toUpperCase() === "SEDEX"
-    );
+    // Filtrar apenas PAC e SEDEX
+    const filtered = data
+      .filter(
+        (option) =>
+          option.name.toUpperCase() === "PAC" ||
+          option.name.toUpperCase() === "SEDEX"
+      )
+      .map((option) => ({
+        name: option.name,
+        price: parseFloat(option.price || 0),
+        delivery_time: option.delivery_time,
+        company: option.company?.name || "",
+      }));
 
     res.json(filtered);
   } catch (error) {
