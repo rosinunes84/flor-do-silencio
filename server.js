@@ -22,7 +22,7 @@ app.get('/status', (req, res) => {
 });
 
 // ==========================
-// Rota de cálculo de frete (MelhorEnvio)
+// Rota de cálculo de frete (MelhorEnvio) - DEBUG
 // ==========================
 app.post('/shipping/calculate', async (req, res) => {
   const { zipCode, items } = req.body;
@@ -31,6 +31,13 @@ app.post('/shipping/calculate', async (req, res) => {
   }
 
   try {
+    // Log para debug
+    console.log('Calculando frete com:', {
+      from: process.env.SENDER_CEP,
+      to: zipCode,
+      products: items
+    });
+
     const response = await fetch('https://www.melhorenvio.com.br/api/v2/me/shipment/calculate', {
       method: 'POST',
       headers: {
@@ -53,15 +60,22 @@ app.post('/shipping/calculate', async (req, res) => {
     });
 
     const data = await response.json();
-    if (!data || !data[0]) {
-      return res.status(500).json({ error: 'Não foi possível calcular o frete' });
+
+    // Log completo da resposta da API do MelhorEnvio
+    console.log('Resposta MelhorEnvio:', JSON.stringify(data, null, 2));
+
+    if (!data || data.error || !data[0]) {
+      return res.status(500).json({
+        error: 'Não foi possível calcular o frete',
+        melhorEnvioResponse: data
+      });
     }
 
     const option = data[0];
     res.json({ shippingCost: option.price, deliveryTime: option.delivery_time });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Erro ao calcular o frete' });
+    console.error('Erro ao chamar MelhorEnvio:', error);
+    res.status(500).json({ error: 'Erro ao calcular o frete', details: error.message });
   }
 });
 
