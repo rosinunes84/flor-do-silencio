@@ -39,7 +39,7 @@ app.post("/shipping/calculate", async (req, res) => {
       products: items.map((item) => ({
         name: item.name || "Produto",
         quantity: item.quantity || 1,
-        unitary_value: item.salePrice || 50,
+        unitary_value: parseFloat(item.salePrice || 50).toFixed(2),
         weight: item.weight || 1,
         length: item.length || 20,
         height: item.height || 5,
@@ -50,15 +50,18 @@ app.post("/shipping/calculate", async (req, res) => {
 
     console.log("📦 Calculando frete:", payload);
 
-    const response = await fetch("https://sandbox.melhorenvio.com.br/api/v2/me/shipment/calculate", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`
-      },
-      body: JSON.stringify(payload)
-    });
+    const response = await fetch(
+      "https://sandbox.melhorenvio.com.br/api/v2/me/shipment/calculate",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`
+        },
+        body: JSON.stringify(payload)
+      }
+    );
 
     const data = await response.json();
     console.log("📬 Resposta MelhorEnvio:", data);
@@ -70,7 +73,7 @@ app.post("/shipping/calculate", async (req, res) => {
     res.json(data);
   } catch (error) {
     console.error("❌ Erro ao calcular frete:", error);
-    res.status(500).json({ error: "Erro interno do servidor" });
+    res.status(500).json({ error: "Erro interno do servidor", details: error.message });
   }
 });
 
