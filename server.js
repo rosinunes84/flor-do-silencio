@@ -1,15 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-
-// Compatibilidade do fetch
-let fetch;
-try {
-  fetch = globalThis.fetch; // Node >=18
-  if (!fetch) throw new Error("fetch não definido");
-} catch (e) {
-  fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args));
-}
+const { calcularPrecoPrazo } = require("correios-brasil");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -29,7 +21,7 @@ app.get("/status", (req, res) => {
 });
 
 // ==========================
-// Cálculo de frete (MelhorEnvio)
+// Cálculo de frete (Correios) - PAC e SEDEX
 // ==========================
 app.post("/shipping/calculate", async (req, res) => {
   const { zipCode, items } = req.body;
@@ -39,61 +31,34 @@ app.post("/shipping/calculate", async (req, res) => {
   }
 
   try {
-    const payload = {
-      from: { postal_code: process.env.SENDER_CEP },
-      to: { postal_code: zipCode },
-      products: items.map((item) => ({
-        name: item.name || "Produto",
-        quantity: item.quantity || 1,
-        unitary_value: item.salePrice || 50,
-        weight: item.weight || 1,
-        length: item.length || 20,
-        height: item.height || 5,
-        width: item.width || 15,
-      })),
-      options: {
-        insurance_value: items.reduce((sum, i) => sum + (i.salePrice || 0), 0),
-      },
-    };
+    // Somar peso total e dimensões
+    const totalWeight = items.reduce((sum, i) => sum + (i.weight || 1) * (i.quantity || 1), 0);
+    const totalLength = Math.max(...items.map(i => i.length || 20));
+    const totalHeight = items.reduce((sum, i) => sum + (i.height || 5), 0);
+    const totalWidth = items.reduce((sum, i) => sum + (i.width || 15), 0);
 
-    console.log("📦 Calculando frete:", payload);
+    const servicos = ["04014", "04510"]; // SEDEX e PAC
+    const result = await calcularPrecoPrazo({
+      nCdServico: servicos,
+      sCepOrigem: process.env.SENDER_CEP,
+      sCepDestino: zipCode,
+      nVlPeso: totalWeight.toString(),
+      nCdFormato: 1,
+      nVlComprimento: totalLength,
+      nVlAltura: totalHeight,
+      nVlLargura: totalWidth,
+      nVlDiametro: 0
+    });
 
-    const response = await fetch(
-      "https://www.melhorenvio.com.br/api/v2/me/shipment/calculate",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`,
-        },
-        body: JSON.stringify(payload),
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      return res
-        .status(response.status)
-        .json({ error: data.message || "Erro ao calcular frete" });
-    }
-
-    // Filtrar apenas PAC e SEDEX
-    const filtered = data
-      .filter(
-        (option) =>
-          option.name.toUpperCase() === "PAC" ||
-          option.name.toUpperCase() === "SEDEX"
-      )
-      .map((option) => ({
-        name: option.name,
-        price: parseFloat(option.price || 0),
-        delivery_time: option.delivery_time,
-        company: option.company?.name || "",
-      }));
+    const filtered = result.map(option => ({
+      name: option.Servico === "04014" ? "SEDEX" : "PAC",
+      price: parseFloat(option.Valor.replace(",", ".")) || 0,
+      delivery_time: option.PrazoEntrega,
+      error: option.Erro !== "0" ? option.MsgErro : null
+    }));
 
     res.json(filtered);
+
   } catch (error) {
     console.error("❌ Erro ao calcular frete:", error);
     res.status(500).json({ error: "Erro interno do servidor", details: error.message });
@@ -101,7 +66,7 @@ app.post("/shipping/calculate", async (req, res) => {
 });
 
 // ==========================
-// Criação de ordem no PagSeguro
+// Criação de ordem no PagSeguro (produção)
 // ==========================
 app.post("/pagseguro/create_order", async (req, res) => {
   const { items, customer, shipping } = req.body;
@@ -112,19 +77,34 @@ app.post("/pagseguro/create_order", async (req, res) => {
   }
 
   try {
+    // Compatibilidade fetch para Node < 18
+    let fetchFn;
+    if (typeof globalThis.fetch === "function") {
+      fetchFn = globalThis.fetch;
+    } else {
+      fetchFn = require("node-fetch");
+    }
+    const fetch = (...args) => fetchFn(...args);
+
     const formData = new URLSearchParams();
 
     items.forEach((item, i) => {
       formData.append(`itemId${i + 1}`, item.id);
       formData.append(`itemDescription${i + 1}`, item.name);
-      formData.append(`itemAmount${i + 1}`, parseFloat(item.amount).toFixed(2));
+      formData.append(
+        `itemAmount${i + 1}`,
+        parseFloat(item.amount).toFixed(2)
+      );
       formData.append(`itemQuantity${i + 1}`, item.quantity);
     });
 
     if (shipping?.cost > 0) {
       formData.append(`itemId${items.length + 1}`, "frete");
       formData.append(`itemDescription${items.length + 1}`, "Frete");
-      formData.append(`itemAmount${items.length + 1}`, parseFloat(shipping.cost).toFixed(2));
+      formData.append(
+        `itemAmount${items.length + 1}`,
+        parseFloat(shipping.cost).toFixed(2)
+      );
       formData.append(`itemQuantity${items.length + 1}`, 1);
       formData.append("shippingType", shipping.type || 1);
     }
@@ -135,11 +115,26 @@ app.post("/pagseguro/create_order", async (req, res) => {
     formData.append("reference", Date.now().toString());
     formData.append("senderName", customer.name);
     formData.append("senderEmail", customer.email);
-    formData.append("senderPhone", customer.phone.replace(/\D/g, "").slice(0, 11));
-    formData.append("shippingAddressStreet", customer.address.split(",")[0] || "Rua Teste");
-    formData.append("shippingAddressNumber", customer.address.split(",")[1]?.trim() || "S/N");
-    formData.append("shippingAddressDistrict", customer.address.split(",")[1]?.trim() || "Bairro");
-    formData.append("shippingAddressPostalCode", customer.zipCode.replace(/\D/g, ""));
+    formData.append(
+      "senderPhone",
+      customer.phone.replace(/\D/g, "").slice(0, 11)
+    );
+    formData.append(
+      "shippingAddressStreet",
+      customer.address.split(",")[0] || "Rua Teste"
+    );
+    formData.append(
+      "shippingAddressNumber",
+      customer.address.split(",")[1]?.trim() || "S/N"
+    );
+    formData.append(
+      "shippingAddressDistrict",
+      customer.address.split(",")[1]?.trim() || "Bairro"
+    );
+    formData.append(
+      "shippingAddressPostalCode",
+      customer.zipCode.replace(/\D/g, "")
+    );
     formData.append("shippingAddressCity", customer.city || "Cidade");
     formData.append("shippingAddressState", customer.state || "UF");
     formData.append("shippingAddressCountry", "BRA");
@@ -149,7 +144,9 @@ app.post("/pagseguro/create_order", async (req, res) => {
       {
         method: "POST",
         body: formData.toString(),
-        headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        },
       }
     );
 
@@ -162,8 +159,13 @@ app.post("/pagseguro/create_order", async (req, res) => {
     res.json({ payment_url: checkoutUrl });
   } catch (error) {
     console.error("❌ Erro PagSeguro:", error);
-    res.status(500).json({ error: "Erro ao criar pedido no PagSeguro", details: error.message });
+    res.status(500).json({
+      error: "Erro ao criar pedido no PagSeguro",
+      details: error.message,
+    });
   }
 });
 
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () =>
+  console.log(`🚀 Server running on port ${PORT}`)
+);
