@@ -1,7 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const fetch = require("node-fetch");
+const fetch = require("node-fetch"); // obrigatório para Render
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -21,7 +21,7 @@ app.get("/status", (req, res) => {
 });
 
 // ==========================
-// Cálculo de frete via Melhor Envio (com log detalhado)
+// Cálculo de frete via Melhor Envio
 // ==========================
 app.post("/shipping/calculate", async (req, res) => {
   const { zipCode, items } = req.body;
@@ -36,48 +36,34 @@ app.post("/shipping/calculate", async (req, res) => {
     const totalHeight = items.reduce((sum, i) => sum + (i.height || 5), 0);
     const totalWidth = items.reduce((sum, i) => sum + (i.width || 15), 0);
 
-    const requestBody = {
-      from: { postal_code: process.env.SENDER_CEP },
-      to: { postal_code: zipCode },
-      parcels: [{
-        weight: totalWeight,
-        length: totalLength,
-        height: totalHeight,
-        width: totalWidth
-      }]
-    };
-
-    console.log("📦 Requisição Melhor Envio:", JSON.stringify(requestBody, null, 2));
-
     const response = await fetch("https://www.melhorenvio.com.br/api/v2/me/shipment/calculate", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`
       },
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify({
+        from: { postal_code: process.env.SENDER_CEP },
+        to: { postal_code: zipCode },
+        parcels: [{
+          weight: totalWeight,
+          length: totalLength,
+          height: totalHeight,
+          width: totalWidth
+        }]
+      })
     });
 
-    console.log("📄 Status da resposta Melhor Envio:", response.status);
-    const responseText = await response.text();
-    console.log("📝 Corpo da resposta Melhor Envio:", responseText);
+    const data = await response.json();
 
-    let data;
-    try {
-      data = JSON.parse(responseText);
-    } catch (parseError) {
-      return res.status(500).json({
-        error: "Erro ao interpretar resposta do Melhor Envio",
-        details: parseError.message,
-        raw: responseText
-      });
+    // Se der erro de autenticação
+    if (data.message && data.message.toLowerCase().includes("unauthenticated")) {
+      return res.status(401).json({ error: "Token do Melhor Envio inválido ou expirado", raw: data });
     }
 
+    // Se não vier nenhuma opção de frete
     if (!Array.isArray(data) || data.length === 0) {
-      return res.status(200).json({
-        warning: "Nenhuma opção de frete retornada. Verifique CEP, peso ou token.",
-        raw: data
-      });
+      return res.status(200).json({ warning: "Nenhuma opção de frete retornada. Verifique CEP, peso ou token.", raw: data });
     }
 
     const filtered = data.map(option => ({
@@ -95,7 +81,7 @@ app.post("/shipping/calculate", async (req, res) => {
 });
 
 // ==========================
-// Criação de ordem no PagSeguro
+// Criação de ordem no PagSeguro (produção)
 // ==========================
 app.post("/pagseguro/create_order", async (req, res) => {
   const { items, customer, shipping } = req.body;
@@ -159,5 +145,5 @@ app.post("/pagseguro/create_order", async (req, res) => {
 });
 
 app.listen(PORT, () =>
-  console.log(`🚀 Server running on port ${PORT}`)
+  console.log(`🚀 Server rodando na porta ${PORT}`)
 );
