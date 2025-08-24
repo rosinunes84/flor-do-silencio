@@ -1,7 +1,10 @@
+// routes/createPayment.js
 const mercadopago = require("mercadopago");
 
-// Configura token de acesso
-mercadopago.configurations = { access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN };
+// Configura o token de acesso (v3.x)
+mercadopago.configure({
+  access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
+});
 
 const createPayment = async (req, res) => {
   try {
@@ -59,6 +62,7 @@ const createPayment = async (req, res) => {
       auto_return: "approved",
     };
 
+    // Cria a preferência no Mercado Pago
     const response = await mercadopago.preferences.create(preference);
 
     res.json({ payment_url: response.body.init_point });
