@@ -7,11 +7,9 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 // ==========================
-// Configuração do Mercado Pago (SDK oficial v1)
+// Configuração do Mercado Pago (SDK v2)
 // ==========================
-mercadopago.configure({
-  access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN,
-});
+mercadopago.configurations.setAccessToken(process.env.MERCADO_PAGO_ACCESS_TOKEN);
 
 // ==========================
 // Middlewares
@@ -41,9 +39,8 @@ app.post("/shipping/calculate", (req, res) => {
   }
 
   try {
-    // Simulação de frete fixo
     const simulatedShipping = {
-      name: "Sedex ",
+      name: "Sedex Simulado",
       price: 22.9,
       delivery_time: 5, // dias úteis
     };
@@ -59,20 +56,13 @@ app.post("/shipping/calculate", (req, res) => {
 // Criação de preferência no Mercado Pago
 // ==========================
 app.post("/mercadopago/create-preference", async (req, res) => {
-  const { items, payer, shipping, back_urls } = req.body;
+  const { items, payer, shipping } = req.body;
 
   if (!items?.length || !payer?.email) {
     return res.status(400).json({ error: "Itens e dados do comprador obrigatórios" });
   }
 
   try {
-    // Define URLs de retorno padrão se não forem enviadas
-    const urls = back_urls || {
-      success: `${process.env.FRONTEND_URL || "http://localhost:3000"}/pedidos`,
-      failure: `${process.env.FRONTEND_URL || "http://localhost:3000"}/pedidos`,
-      pending: `${process.env.FRONTEND_URL || "http://localhost:3000"}/pedidos`,
-    };
-
     const preferenceData = {
       items: items.map(item => ({
         title: item.title || item.name,
@@ -88,7 +78,11 @@ app.post("/mercadopago/create-preference", async (req, res) => {
         cost: Number(shipping?.cost || 0),
         mode: "not_specified",
       },
-      back_urls: urls,
+      back_urls: {
+        success: `${process.env.FRONTEND_URL || "http://localhost:3000"}/pedidos`,
+        failure: `${process.env.FRONTEND_URL || "http://localhost:3000"}/pedidos`,
+        pending: `${process.env.FRONTEND_URL || "http://localhost:3000"}/pedidos`,
+      },
       auto_return: "approved",
     };
 
