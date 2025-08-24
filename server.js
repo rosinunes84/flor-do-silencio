@@ -53,9 +53,9 @@ app.post("/shipping/calculate", async (req, res) => {
 });
 
 // ==========================
-// Criação de ordem no Mercado Pago
+// Criação de preferência no Mercado Pago
 // ==========================
-app.post("/mercadopago/create_order", async (req, res) => {
+app.post("/mercadopago/create-preference", async (req, res) => {
   const { items, payer, shipping } = req.body;
 
   if (!items?.length || !payer) {
