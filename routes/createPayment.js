@@ -1,41 +1,36 @@
 const mercadopago = require("mercadopago");
 
-// Configura Mercado Pago
-mercadopago.configurations.setAccessToken(process.env.MERCADO_PAGO_ACCESS_TOKEN);
+// Configura token de acesso
+mercadopago.configurations = { access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN };
 
 const createPayment = async (req, res) => {
   try {
-    const { orderId, items, customer, shippingCost } = req.body;
+    const { orderId, items, customer, total, shippingCost } = req.body;
 
     if (!items?.length || !customer) {
-      return res.status(400).json({ error: "Itens e dados do cliente obrigatórios" });
+      return res.status(400).json({ error: "Itens e dados do cliente são obrigatórios" });
     }
 
-    const mpItems = items.map(item => ({
-      title: item.name,
-      quantity: item.quantity,
-      unit_price: parseFloat(item.amount),
-      currency_id: "BRL",
-    }));
-
-    if (shippingCost && shippingCost > 0) {
-      mpItems.push({
-        title: "Frete",
-        quantity: 1,
-        unit_price: parseFloat(shippingCost),
-        currency_id: "BRL",
-      });
-    }
-
+    // Monta preference para Mercado Pago
     const preference = {
-      items: mpItems,
-      external_reference: orderId,
+      items: items.map((item) => ({
+        title: item.name,
+        quantity: item.quantity,
+        unit_price: item.amount,
+      })),
       payer: {
         name: customer.name,
         email: customer.email,
-        phone: { area_code: customer.phone.slice(0, 2), number: customer.phone.slice(2) },
+        phone: {
+          area_code: customer.phone.substring(0, 2),
+          number: customer.phone.substring(2),
+        },
+        identification: {
+          type: "CPF",
+          number: customer.cpf,
+        },
         address: {
-          zip_code: customer.zipCode.replace(/\D/g, ""),
+          zip_code: customer.zipCode,
           street_name: customer.address.split(",")[0] || "Rua Teste",
           street_number: customer.address.split(",")[1]?.trim() || "S/N",
           neighborhood: customer.address.split(",")[1]?.trim() || "Bairro",
@@ -43,23 +38,32 @@ const createPayment = async (req, res) => {
           federal_unit: customer.state || "UF",
         },
       },
+      shipments: {
+        cost: shippingCost || 0,
+        mode: "not_specified",
+        receiver_address: {
+          zip_code: customer.zipCode,
+          street_name: customer.address.split(",")[0] || "Rua Teste",
+          street_number: customer.address.split(",")[1]?.trim() || "S/N",
+          neighborhood: customer.address.split(",")[1]?.trim() || "Bairro",
+          city: customer.city || "Cidade",
+          federal_unit: customer.state || "UF",
+        },
+      },
+      external_reference: orderId || `${Date.now()}_${Math.floor(Math.random() * 100000)}`,
       back_urls: {
-        success: `${process.env.API_URL}/checkout/success`,
-        failure: `${process.env.API_URL}/checkout/failure`,
-        pending: `${process.env.API_URL}/checkout/pending`,
+        success: process.env.API_URL + "/success",
+        failure: process.env.API_URL + "/failure",
+        pending: process.env.API_URL + "/pending",
       },
       auto_return: "approved",
-      payment_methods: {
-        excluded_payment_types: [{ id: "ticket" }],
-        installments: 1
-      },
     };
 
     const response = await mercadopago.preferences.create(preference);
 
-    res.json({ init_point: response.body.init_point, id: response.body.id });
+    res.json({ payment_url: response.body.init_point });
   } catch (error) {
-    console.error("Erro ao criar pagamento Mercado Pago:", error);
+    console.error("Erro no createPayment Mercado Pago:", error);
     res.status(500).json({ error: "Erro ao criar pagamento", details: error.message });
   }
 };
