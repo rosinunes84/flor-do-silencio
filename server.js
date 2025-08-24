@@ -10,17 +10,15 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+// Middlewares
 app.use(cors());
 app.use(express.json());
 
 // Rotas
-app.use("/api/checkout", checkoutRouter);
-app.use("/api/frete", freteRouter);
+app.use("/checkout", checkoutRouter);
+app.use("/frete", freteRouter);
 
-app.get("/", (req, res) => {
-  res.send("Backend da loja virtual rodando!");
-});
-
+// Servidor
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
 });
