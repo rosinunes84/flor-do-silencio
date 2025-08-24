@@ -1,23 +1,24 @@
-require("dotenv").config();
-const express = require("express");
-const cors = require("cors");
-const mercadopago = require("mercadopago");
+import express from "express";
+import dotenv from "dotenv";
+import { MercadoPagoConfig, Preference } from "mercadopago";
+
+dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 4000;
+app.use(express.json());
 
 // ==========================
-// Configuração do Mercado Pago (SDK oficial)
+// Inicializa o cliente do Mercado Pago
 // ==========================
-mercadopago.configure({
-  access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN,
+const client = new MercadoPagoConfig({
+  accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN,
 });
 
 // ==========================
 // Middlewares
 // ==========================
+import cors from "cors";
 app.use(cors());
-app.use(express.json());
 
 // ==========================
 // Status do servidor
@@ -41,8 +42,9 @@ app.post("/shipping/calculate", (req, res) => {
   }
 
   try {
+    // Aqui você pode colocar qualquer lógica de cálculo real
     const simulatedShipping = {
-      name: "Sedex Simulado",
+      name: "Sedex ",
       price: 22.9,
       delivery_time: 5, // dias úteis
     };
@@ -88,13 +90,14 @@ app.post("/mercadopago/create-preference", async (req, res) => {
       auto_return: "approved",
     };
 
-    const response = await mercadopago.preferences.create(preferenceData);
+    const preference = new Preference(client);
+    const response = await preference.create({ body: preferenceData });
 
-    if (!response || !response.body || !response.body.init_point) {
+    if (!response || !response.id || !response.init_point) {
       throw new Error("Não foi possível gerar link de pagamento");
     }
 
-    res.json({ payment_url: response.body.init_point });
+    res.json({ payment_url: response.init_point });
   } catch (error) {
     console.error("❌ Erro ao criar pedido:", error);
     res.status(500).json({
@@ -107,4 +110,5 @@ app.post("/mercadopago/create-preference", async (req, res) => {
 // ==========================
 // Start do servidor
 // ==========================
+const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`🚀 Server rodando na porta ${PORT}`));
