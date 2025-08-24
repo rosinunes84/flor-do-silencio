@@ -1,23 +1,23 @@
 import express from "express";
-import cors from "cors";
 import dotenv from "dotenv";
-
 import checkoutRouter from "./routes/checkoutRouter.js";
-import freteRouter from "./routes/freteRouter.js";
 
+// Carrega variáveis do .env
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 4000;
-
-app.use(cors());
 app.use(express.json());
 
-// Rotas
+// Rota principal de checkout
 app.use("/checkout", checkoutRouter);
-app.use("/frete", freteRouter);
 
-// Servidor
+// Verificação se a variável foi carregada
+if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) {
+  console.error("❌ ERRO: MERCADO_PAGO_ACCESS_TOKEN não encontrado no .env");
+  process.exit(1); // Força parar o servidor para evitar rodar sem token
+}
+
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Servidor rodando em http://localhost:${PORT}`);
+  console.log(`✅ Servidor rodando na porta ${PORT}`);
 });

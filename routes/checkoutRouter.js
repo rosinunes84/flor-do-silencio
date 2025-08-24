@@ -1,43 +1,40 @@
 import express from "express";
-import mercadopago from "mercadopago";
+import { MercadoPagoConfig, Preference } from "mercadopago";
 
 const router = express.Router();
 
-// Configura o Mercado Pago
-mercadopago.configurations.setAccessToken(process.env.MERCADO_PAGO_ACCESS_TOKEN);
+// Configuração Mercado Pago
+const client = new MercadoPagoConfig({
+  accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN,
+});
 
-router.post("/", async (req, res) => {
+// Criar preferência de pagamento
+router.post("/create_preference", async (req, res) => {
   try {
-    const { items, payer } = req.body;
-
-    if (!items || items.length === 0) {
-      return res.status(400).json({ error: "Items inválidos" });
-    }
-
-    const preference = {
-      items: items.map(item => ({
-        title: item.title,
-        quantity: Number(item.quantity),
-        unit_price: Number(item.unit_price),
-        currency_id: "BRL",
-      })),
-      payer: {
-        name: payer.name,
-        email: payer.email,
-      },
+    const body = {
+      items: [
+        {
+          title: req.body.title,
+          quantity: Number(req.body.quantity),
+          currency_id: "BRL",
+          unit_price: Number(req.body.price),
+        },
+      ],
       back_urls: {
-        success: "https://seusite.com/success",
-        failure: "https://seusite.com/failure",
-        pending: "https://seusite.com/pending",
+        success: "http://localhost:3000/success",
+        failure: "http://localhost:3000/failure",
+        pending: "http://localhost:3000/pending",
       },
       auto_return: "approved",
     };
 
-    const response = await mercadopago.preferences.create(preference);
-    res.json({ init_point: response.response.init_point, id: response.response.id });
+    const preference = new Preference(client);
+    const result = await preference.create({ body });
+
+    res.json({ id: result.id });
   } catch (error) {
     console.error("Erro ao criar preferência:", error);
-    res.status(500).json({ error: "Erro ao criar preferência Mercado Pago" });
+    res.status(500).json({ error: "Erro ao criar preferência" });
   }
 });
 
