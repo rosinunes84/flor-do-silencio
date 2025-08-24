@@ -1,25 +1,66 @@
 const mercadopago = require("mercadopago");
 
-// Configura o Access Token
+// Configura Mercado Pago
 mercadopago.configurations.setAccessToken(process.env.MERCADO_PAGO_ACCESS_TOKEN);
 
 const createPayment = async (req, res) => {
   try {
-    const { transaction_amount, token, description, installments, payer } = req.body;
+    const { orderId, items, customer, shippingCost } = req.body;
 
-    const payment_data = {
-      transaction_amount,
-      token,
-      description,
-      installments,
-      payer
+    if (!items?.length || !customer) {
+      return res.status(400).json({ error: "Itens e dados do cliente obrigatórios" });
+    }
+
+    const mpItems = items.map(item => ({
+      title: item.name,
+      quantity: item.quantity,
+      unit_price: parseFloat(item.amount),
+      currency_id: "BRL",
+    }));
+
+    if (shippingCost && shippingCost > 0) {
+      mpItems.push({
+        title: "Frete",
+        quantity: 1,
+        unit_price: parseFloat(shippingCost),
+        currency_id: "BRL",
+      });
+    }
+
+    const preference = {
+      items: mpItems,
+      external_reference: orderId,
+      payer: {
+        name: customer.name,
+        email: customer.email,
+        phone: { area_code: customer.phone.slice(0, 2), number: customer.phone.slice(2) },
+        address: {
+          zip_code: customer.zipCode.replace(/\D/g, ""),
+          street_name: customer.address.split(",")[0] || "Rua Teste",
+          street_number: customer.address.split(",")[1]?.trim() || "S/N",
+          neighborhood: customer.address.split(",")[1]?.trim() || "Bairro",
+          city: customer.city || "Cidade",
+          federal_unit: customer.state || "UF",
+        },
+      },
+      back_urls: {
+        success: `${process.env.API_URL}/checkout/success`,
+        failure: `${process.env.API_URL}/checkout/failure`,
+        pending: `${process.env.API_URL}/checkout/pending`,
+      },
+      auto_return: "approved",
+      payment_methods: {
+        excluded_payment_types: [{ id: "ticket" }],
+        installments: 1
+      },
     };
 
-    const payment = await mercadopago.payment.create(payment_data);
-    res.json(payment);
+    const response = await mercadopago.preferences.create(preference);
+
+    res.json({ init_point: response.body.init_point, id: response.body.id });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Erro ao criar pagamento" });
+    console.error("Erro ao criar pagamento Mercado Pago:", error);
+    res.status(500).json({ error: "Erro ao criar pagamento", details: error.message });
   }
 };
 
