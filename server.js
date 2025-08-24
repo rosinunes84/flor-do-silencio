@@ -7,10 +7,13 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 // ==========================
-// Configuração do Mercado Pago
+// Configuração do Mercado Pago (versão atual do SDK)
 // ==========================
 mercadopago.configurations.setAccessToken(process.env.MERCADO_PAGO_ACCESS_TOKEN);
 
+// ==========================
+// Middlewares
+// ==========================
 app.use(cors());
 app.use(express.json());
 
@@ -41,6 +44,7 @@ app.post("/shipping/calculate", async (req, res) => {
       price: 22.9,
       delivery_time: 5, // dias úteis
     };
+
     res.json([simulatedShipping]);
   } catch (error) {
     console.error("❌ Erro ao calcular frete:", error);
@@ -60,7 +64,7 @@ app.post("/mercadopago/create-preference", async (req, res) => {
 
   try {
     const preferenceData = {
-      items: items.map((item) => ({
+      items: items.map(item => ({
         title: item.title || item.name,
         quantity: item.quantity,
         currency_id: "BRL",
