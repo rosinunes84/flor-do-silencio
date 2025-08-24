@@ -1,14 +1,16 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const mercadopago = require("mercadopago");
+const { MercadoPagoConfig, Preference } = require("mercadopago");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+// ==========================
 // Configuração do Mercado Pago
-mercadopago.configure({
-  access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
+// ==========================
+const client = new MercadoPagoConfig({
+  accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN,
 });
 
 app.use(cors());
@@ -39,8 +41,8 @@ app.post("/shipping/calculate", async (req, res) => {
     // Simulação de frete fixo
     const simulatedShipping = {
       name: "Sedex Simulado",
-      price: 22.90,
-      delivery_time: 5 // dias úteis
+      price: 22.9,
+      delivery_time: 5, // dias úteis
     };
 
     res.json([simulatedShipping]);
@@ -61,34 +63,45 @@ app.post("/mercadopago/create_order", async (req, res) => {
   }
 
   try {
-    const preference = {
-      items,
-      payer,
-      shipping,
-      back_urls: {
-        success: process.env.FRONTEND_URL || "http://localhost:3000",
-        failure: process.env.FRONTEND_URL || "http://localhost:3000",
-        pending: process.env.FRONTEND_URL || "http://localhost:3000"
+    const preference = new Preference(client);
+
+    const response = await preference.create({
+      body: {
+        items: items.map((item) => ({
+          title: item.title || item.name,
+          quantity: item.quantity,
+          currency_id: "BRL",
+          unit_price: Number(item.unit_price || item.amount || 0),
+        })),
+        payer: {
+          name: payer.name,
+          email: payer.email,
+        },
+        shipments: {
+          cost: Number(shipping?.cost || 0),
+          mode: "not_specified",
+        },
+        back_urls: {
+          success: `${process.env.FRONTEND_URL || "http://localhost:3000"}/pedidos`,
+          failure: `${process.env.FRONTEND_URL || "http://localhost:3000"}/pedidos`,
+          pending: `${process.env.FRONTEND_URL || "http://localhost:3000"}/pedidos`,
+        },
+        auto_return: "approved",
       },
-      auto_return: "approved"
-    };
+    });
 
-    const response = await mercadopago.preferences.create(preference);
-
-    if (!response || !response.body || !response.body.init_point) {
+    if (!response || !response.id || !response.init_point) {
       throw new Error("Não foi possível gerar link de pagamento");
     }
 
-    res.json({ payment_url: response.body.init_point });
+    res.json({ payment_url: response.init_point });
   } catch (error) {
     console.error("❌ Erro Mercado Pago:", error);
     res.status(500).json({
       error: "Erro ao criar pedido no Mercado Pago",
-      details: error.message
+      details: error.message,
     });
   }
 });
 
-app.listen(PORT, () =>
-  console.log(`🚀 Server rodando na porta ${PORT}`)
-);
+app.listen(PORT, () => console.log(`🚀 Server rodando na porta ${PORT}`));
