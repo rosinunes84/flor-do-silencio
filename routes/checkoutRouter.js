@@ -1,33 +1,33 @@
 const express = require("express");
 const mercadopago = require("mercadopago");
-const router = express.Router();
 
-// Configura o token de acesso do Mercado Pago
 mercadopago.configurations.setAccessToken(process.env.MERCADO_PAGO_ACCESS_TOKEN);
+
+const router = express.Router();
 
 // Rota para criar checkout
 router.post("/checkout", async (req, res) => {
   try {
     const { customer, items, shipping, paymentMethod } = req.body;
 
-    if (!items?.length || !customer) {
+    if (!items?.length || !customer?.name || !customer?.email) {
       return res.status(400).json({ error: "Itens e dados do cliente são obrigatórios" });
     }
 
     // Prepara os itens para a preferência
-    const preferenceItems = items.map((item) => ({
+    const preferenceItems = items.map(item => ({
       title: item.name,
       quantity: item.quantity,
-      unit_price: item.amount,
+      unit_price: parseFloat(item.amount),
       currency_id: "BRL"
     }));
 
-    // Adiciona o frete se houver
+    // Adiciona frete como item separado, se houver
     if (shipping?.amount && shipping.amount > 0) {
       preferenceItems.push({
         title: "Frete",
         quantity: 1,
-        unit_price: shipping.amount,
+        unit_price: parseFloat(shipping.amount),
         currency_id: "BRL"
       });
     }
@@ -37,60 +37,45 @@ router.post("/checkout", async (req, res) => {
       items: preferenceItems,
       payer: {
         name: customer.name,
+        surname: customer.name.split(" ").slice(1).join(" ") || "Cliente",
         email: customer.email,
-        phone: {
-          area_code: customer.phone.substring(0, 2),
-          number: customer.phone.substring(2),
-        },
         identification: {
           type: "CPF",
-          number: customer.cpf,
+          number: customer.cpf || "00000000000"
+        },
+        phone: {
+          area_code: customer.phone?.substring(0, 2) || "11",
+          number: customer.phone?.substring(2) || "999999999"
         },
         address: {
-          zip_code: customer.zipCode,
-          street_name: customer.address.split(",")[0] || "Rua Teste",
-          street_number: customer.address.split(",")[1]?.trim() || "S/N",
-          neighborhood: customer.address.split(",")[1]?.trim() || "Bairro",
+          zip_code: customer.zipCode || "00000000",
+          street_name: customer.address || "Rua Teste",
+          street_number: "S/N",
+          neighborhood: "Bairro",
           city: customer.city || "Cidade",
-          federal_unit: customer.state || "UF",
-        },
+          federal_unit: customer.state || "UF"
+        }
       },
-      shipments: {
-        cost: shipping?.amount || 0,
-        mode: "not_specified",
-        receiver_address: {
-          zip_code: customer.zipCode,
-          street_name: customer.address.split(",")[0] || "Rua Teste",
-          street_number: customer.address.split(",")[1]?.trim() || "S/N",
-          neighborhood: customer.address.split(",")[1]?.trim() || "Bairro",
-          city: customer.city || "Cidade",
-          federal_unit: customer.state || "UF",
-        },
-      },
-      payment_methods: {
-        installments: 1,
-        excluded_payment_types: [],
-      },
-      external_reference: `${Date.now()}_${Math.floor(Math.random() * 100000)}`,
       back_urls: {
-        success: process.env.FRONTEND_URL + "/success",
-        failure: process.env.FRONTEND_URL + "/failure",
-        pending: process.env.FRONTEND_URL + "/pending",
+        success: process.env.API_URL + "/success",
+        failure: process.env.API_URL + "/failure",
+        pending: process.env.API_URL + "/pending"
       },
       auto_return: "approved",
+      payment_methods: {
+        installments: 1,
+        excluded_payment_types: []
+      },
+      external_reference: `order_${Date.now()}`
     };
-
-    // Observação: cartão de crédito é capturado via frontend
-    if (paymentMethod === "card") {
-      preference.payment_methods.excluded_payment_types = [];
-    }
 
     const response = await mercadopago.preferences.create(preference);
 
-    res.json({ payment_url: response.body.init_point });
+    return res.json({ payment_url: response.body.init_point });
+
   } catch (error) {
     console.error("Erro no checkout Mercado Pago:", error);
-    res.status(500).json({ error: "Erro ao processar checkout", details: error.message });
+    return res.status(500).json({ error: "Erro ao processar checkout", details: error.message });
   }
 });
 
