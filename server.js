@@ -1,16 +1,16 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const { MercadoPago } = require("@mercadopago/sdk-node");
+const mercadopago = require("mercadopago");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
 // ==========================
-// Configuração do Mercado Pago (SDK v2)
+// Configuração do Mercado Pago (SDK oficial)
 // ==========================
-const mp = new MercadoPago({
-  accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN,
+mercadopago.configure({
+  access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN,
 });
 
 // ==========================
@@ -88,13 +88,13 @@ app.post("/mercadopago/create-preference", async (req, res) => {
       auto_return: "approved",
     };
 
-    const preferenceResponse = await mp.preferences.create({ preference: preferenceData });
+    const response = await mercadopago.preferences.create(preferenceData);
 
-    if (!preferenceResponse || !preferenceResponse.body || !preferenceResponse.body.init_point) {
+    if (!response || !response.body || !response.body.init_point) {
       throw new Error("Não foi possível gerar link de pagamento");
     }
 
-    res.json({ payment_url: preferenceResponse.body.init_point });
+    res.json({ payment_url: response.body.init_point });
   } catch (error) {
     console.error("❌ Erro ao criar pedido:", error);
     res.status(500).json({
