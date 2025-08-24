@@ -1,24 +1,23 @@
-import express from "express";
-import dotenv from "dotenv";
-import { MercadoPagoConfig, Preference } from "mercadopago";
-
-dotenv.config();
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const mercadopago = require("mercadopago");
 
 const app = express();
-app.use(express.json());
+const PORT = process.env.PORT || 4000;
 
 // ==========================
-// Inicializa o cliente do Mercado Pago
+// Configuração do Mercado Pago (SDK oficial v1)
 // ==========================
-const client = new MercadoPagoConfig({
-  accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN,
+mercadopago.configure({
+  access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN,
 });
 
 // ==========================
 // Middlewares
 // ==========================
-import cors from "cors";
 app.use(cors());
+app.use(express.json());
 
 // ==========================
 // Status do servidor
@@ -42,7 +41,7 @@ app.post("/shipping/calculate", (req, res) => {
   }
 
   try {
-    // Aqui você pode colocar qualquer lógica de cálculo real
+    // Simulação de frete fixo
     const simulatedShipping = {
       name: "Sedex ",
       price: 22.9,
@@ -60,13 +59,20 @@ app.post("/shipping/calculate", (req, res) => {
 // Criação de preferência no Mercado Pago
 // ==========================
 app.post("/mercadopago/create-preference", async (req, res) => {
-  const { items, payer, shipping } = req.body;
+  const { items, payer, shipping, back_urls } = req.body;
 
   if (!items?.length || !payer?.email) {
     return res.status(400).json({ error: "Itens e dados do comprador obrigatórios" });
   }
 
   try {
+    // Define URLs de retorno padrão se não forem enviadas
+    const urls = back_urls || {
+      success: `${process.env.FRONTEND_URL || "http://localhost:3000"}/pedidos`,
+      failure: `${process.env.FRONTEND_URL || "http://localhost:3000"}/pedidos`,
+      pending: `${process.env.FRONTEND_URL || "http://localhost:3000"}/pedidos`,
+    };
+
     const preferenceData = {
       items: items.map(item => ({
         title: item.title || item.name,
@@ -82,22 +88,17 @@ app.post("/mercadopago/create-preference", async (req, res) => {
         cost: Number(shipping?.cost || 0),
         mode: "not_specified",
       },
-      back_urls: {
-        success: `${process.env.FRONTEND_URL || "http://localhost:3000"}/pedidos`,
-        failure: `${process.env.FRONTEND_URL || "http://localhost:3000"}/pedidos`,
-        pending: `${process.env.FRONTEND_URL || "http://localhost:3000"}/pedidos`,
-      },
+      back_urls: urls,
       auto_return: "approved",
     };
 
-    const preference = new Preference(client);
-    const response = await preference.create({ body: preferenceData });
+    const response = await mercadopago.preferences.create(preferenceData);
 
-    if (!response || !response.id || !response.init_point) {
+    if (!response || !response.body || !response.body.init_point) {
       throw new Error("Não foi possível gerar link de pagamento");
     }
 
-    res.json({ payment_url: response.init_point });
+    res.json({ payment_url: response.body.init_point });
   } catch (error) {
     console.error("❌ Erro ao criar pedido:", error);
     res.status(500).json({
@@ -110,5 +111,4 @@ app.post("/mercadopago/create-preference", async (req, res) => {
 // ==========================
 // Start do servidor
 // ==========================
-const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`🚀 Server rodando na porta ${PORT}`));
