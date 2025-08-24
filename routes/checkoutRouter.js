@@ -1,9 +1,8 @@
 const express = require("express");
-const mercadopago = require("mercadopago");
+const mercadopago = require("mercadopago")({
+  access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
+});
 const router = express.Router();
-
-// Configura token do Mercado Pago para v2.8.0
-mercadopago.configurations = { access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN };
 
 // Rota para criar checkout
 router.post("/checkout", async (req, res) => {
@@ -14,29 +13,42 @@ router.post("/checkout", async (req, res) => {
       return res.status(400).json({ error: "Itens e dados do cliente são obrigatórios" });
     }
 
-    // Calcula total
+    // Calcula total (opcional, apenas para referência)
     const totalValue =
       items.reduce((acc, item) => acc + item.amount * item.quantity, 0) +
       (shipping?.amount || 0);
 
-    // Monta preference compatível v2.8.0
+    // Prepara os itens para a preferência
+    const preferenceItems = items.map((item) => ({
+      title: item.name,
+      quantity: item.quantity,
+      unit_price: item.amount,
+      currency_id: "BRL"
+    }));
+
+    // Adiciona o frete se houver
+    if (shipping?.amount && shipping.amount > 0) {
+      preferenceItems.push({
+        title: "Frete",
+        quantity: 1,
+        unit_price: shipping.amount,
+        currency_id: "BRL"
+      });
+    }
+
+    // Monta a preferência
     const preference = {
-      items: items.map((item) => ({
-        title: item.name,
-        quantity: item.quantity,
-        currency_id: "BRL",
-        unit_price: item.amount,
-      })),
+      items: preferenceItems,
       payer: {
         name: customer.name,
         email: customer.email,
-        identification: {
-          type: "CPF",
-          number: customer.cpf,
-        },
         phone: {
           area_code: customer.phone.substring(0, 2),
           number: customer.phone.substring(2),
+        },
+        identification: {
+          type: "CPF",
+          number: customer.cpf,
         },
         address: {
           zip_code: customer.zipCode,
@@ -72,14 +84,14 @@ router.post("/checkout", async (req, res) => {
       auto_return: "approved",
     };
 
-    // v2.8.0: criação da preferência
-    mercadopago.preferences.create(preference, (error, response) => {
-      if (error) {
-        console.error("Erro no checkout Mercado Pago:", error);
-        return res.status(500).json({ error: "Erro ao processar checkout", details: error.message });
-      }
-      res.json({ payment_url: response.response.init_point });
-    });
+    // Observação: cartão de crédito é capturado via frontend
+    if (paymentMethod === "card" && card) {
+      preference.payment_methods.excluded_payment_types = [];
+    }
+
+    const response = await mercadopago.preferences.create(preference);
+
+    res.json({ payment_url: response.body.init_point });
   } catch (error) {
     console.error("Erro no checkout Mercado Pago:", error);
     res.status(500).json({ error: "Erro ao processar checkout", details: error.message });

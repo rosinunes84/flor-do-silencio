@@ -1,10 +1,11 @@
-const axios = require('axios');
-const mercadopago = require('mercadopago');
+const express = require("express");
+const mercadopago = require("mercadopago")({
+  access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
+});
+const router = express.Router();
 
-// Configura token do Mercado Pago (v2.8.0)
-mercadopago.configurations = { access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN };
-
-const createPayment = async (req, res) => {
+// Rota para criar checkout
+router.post("/createPayment", async (req, res) => {
   try {
     const { orderId, items, customer, total, shippingCost } = req.body;
 
@@ -12,24 +13,37 @@ const createPayment = async (req, res) => {
       return res.status(400).json({ error: "Itens e dados do cliente são obrigatórios" });
     }
 
-    // Monta preference
+    // Prepara os itens para o Mercado Pago
+    const preferenceItems = items.map((item) => ({
+      title: item.name,
+      quantity: item.quantity,
+      unit_price: item.amount,
+      currency_id: "BRL"
+    }));
+
+    // Adiciona o frete se houver
+    if (shippingCost && shippingCost > 0) {
+      preferenceItems.push({
+        title: "Frete",
+        quantity: 1,
+        unit_price: shippingCost,
+        currency_id: "BRL"
+      });
+    }
+
+    // Monta a preferência
     const preference = {
-      items: items.map((item) => ({
-        title: item.name,
-        quantity: item.quantity,
-        currency_id: 'BRL',
-        unit_price: item.amount,
-      })),
+      items: preferenceItems,
       payer: {
         name: customer.name,
         email: customer.email,
-        identification: {
-          type: "CPF",
-          number: customer.cpf,
-        },
         phone: {
           area_code: customer.phone.substring(0, 2),
           number: customer.phone.substring(2),
+        },
+        identification: {
+          type: "CPF",
+          number: customer.cpf,
         },
         address: {
           zip_code: customer.zipCode,
@@ -56,7 +70,7 @@ const createPayment = async (req, res) => {
         installments: 1,
         excluded_payment_types: [],
       },
-      external_reference: orderId,
+      external_reference: `${orderId}_${Date.now()}`,
       back_urls: {
         success: process.env.API_URL + "/success",
         failure: process.env.API_URL + "/failure",
@@ -65,18 +79,13 @@ const createPayment = async (req, res) => {
       auto_return: "approved",
     };
 
-    // Cria preferência (v2.8.0 usa callback)
-    mercadopago.preferences.create(preference, (error, response) => {
-      if (error) {
-        console.error("Erro ao criar pagamento:", error);
-        return res.status(500).json({ error: "Erro ao criar pagamento", details: error.message });
-      }
-      res.json({ checkoutUrl: response.response.init_point });
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Erro ao criar pagamento', details: error.message });
-  }
-};
+    const response = await mercadopago.preferences.create(preference);
 
-module.exports = { createPayment };
+    res.json({ payment_url: response.body.init_point });
+  } catch (error) {
+    console.error("Erro ao criar pagamento:", error);
+    res.status(500).json({ error: "Erro ao criar pagamento", details: error.message });
+  }
+});
+
+module.exports = router;
