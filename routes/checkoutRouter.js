@@ -3,10 +3,15 @@ import mercadopago from "mercadopago";
 
 const router = express.Router();
 
-// Configura token do Mercado Pago (versão 2.x)
-mercadopago.configurations = { access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN };
+// Configura Mercado Pago com access token do .env
+if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) {
+  console.error("❌ ERRO: MERCADO_PAGO_ACCESS_TOKEN não definido no .env");
+  process.exit(1);
+}
 
-// Criar preferência de pagamento
+mercadopago.configurations.setAccessToken(process.env.MERCADO_PAGO_ACCESS_TOKEN);
+
+// Rota de criação de preferência
 router.post("/create_preference", async (req, res) => {
   try {
     const { items } = req.body;
@@ -19,8 +24,8 @@ router.post("/create_preference", async (req, res) => {
       items: items.map(item => ({
         title: item.title,
         quantity: Number(item.quantity),
-        currency_id: "BRL",
         unit_price: Number(item.unit_price),
+        currency_id: "BRL",
       })),
       back_urls: {
         success: "https://seusite.com/success",
@@ -31,10 +36,10 @@ router.post("/create_preference", async (req, res) => {
     };
 
     const response = await mercadopago.preferences.create(preference);
-    res.json({ init_point: response.response.init_point, id: response.response.id });
+    return res.json({ init_point: response.body.init_point, id: response.body.id });
   } catch (error) {
     console.error("Erro ao criar preferência:", error);
-    res.status(500).json({ error: "Erro ao criar preferência" });
+    return res.status(500).json({ error: "Erro ao criar preferência" });
   }
 });
 
