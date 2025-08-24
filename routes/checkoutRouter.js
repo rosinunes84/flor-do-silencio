@@ -1,39 +1,58 @@
 import express from "express";
-import { MercadoPagoConfig, Preference } from "mercadopago";
+import mercadopago from "mercadopago";
 
 const router = express.Router();
 
-// Configuração Mercado Pago
-const client = new MercadoPagoConfig({
-  accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN,
-});
+// Verifica se o token está definido
+if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) {
+  console.error("❌ MERCADO_PAGO_ACCESS_TOKEN não definido no .env ou no ambiente do Render!");
+  process.exit(1);
+}
 
-// Criar preferência de pagamento
+// Configura Mercado Pago
+mercadopago.configurations.setAccessToken(process.env.MERCADO_PAGO_ACCESS_TOKEN);
+
 router.post("/create_preference", async (req, res) => {
   try {
-    const body = {
-      items: [
-        {
-          title: req.body.title,
-          quantity: Number(req.body.quantity),
-          currency_id: "BRL",
-          unit_price: Number(req.body.price),
-        },
-      ],
+    let items = [];
+
+    // Suporta tanto o formato simplificado quanto o array de items
+    if (req.body.items && Array.isArray(req.body.items)) {
+      items = req.body.items.map(item => ({
+        title: item.title,
+        quantity: Number(item.quantity),
+        unit_price: Number(item.unit_price),
+        currency_id: item.currency_id || "BRL"
+      }));
+    } else if (req.body.title && req.body.price && req.body.quantity) {
+      items = [{
+        title: req.body.title,
+        quantity: Number(req.body.quantity),
+        unit_price: Number(req.body.price),
+        currency_id: "BRL"
+      }];
+    } else {
+      return res.status(400).json({ error: "Dados inválidos. Envie 'items' ou 'title', 'price', 'quantity'" });
+    }
+
+    const preference = {
+      items,
       back_urls: {
-        success: "http://localhost:3000/success",
-        failure: "http://localhost:3000/failure",
-        pending: "http://localhost:3000/pending",
+        success: "https://seusite.com/success",
+        failure: "https://seusite.com/failure",
+        pending: "https://seusite.com/pending"
       },
-      auto_return: "approved",
+      auto_return: "approved"
     };
 
-    const preference = new Preference(client);
-    const result = await preference.create({ body });
+    const response = await mercadopago.preferences.create(preference);
 
-    res.json({ id: result.id });
+    res.json({
+      init_point: response.body.init_point,
+      id: response.body.id
+    });
   } catch (error) {
-    console.error("Erro ao criar preferência:", error);
+    console.error("Erro Mercado Pago:", error.response || error);
     res.status(500).json({ error: "Erro ao criar preferência" });
   }
 });
