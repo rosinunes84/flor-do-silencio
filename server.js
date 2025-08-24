@@ -6,7 +6,7 @@ const mercadopago = require("mercadopago");
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// Configuração do Mercado Pago (SDK oficial)
+// Configuração do Mercado Pago (SDK oficial v2)
 mercadopago.configurations.setAccessToken(process.env.MERCADO_PAGO_ACCESS_TOKEN);
 
 // Middlewares
@@ -30,7 +30,7 @@ app.post("/shipping/calculate", (req, res) => {
   const simulatedShipping = {
     name: "Sedex Simulado",
     price: 22.9,
-    delivery_time: 5, // dias úteis
+    delivery_time: 5,
   };
   res.json([simulatedShipping]);
 });
