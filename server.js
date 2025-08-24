@@ -1,17 +1,10 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const mercadopago = require("mercadopago");
+const fetch = require("node-fetch"); // npm install node-fetch
 
 const app = express();
 const PORT = process.env.PORT || 4000;
-
-// ==========================
-// Inicializa o Mercado Pago (SDK v2)
-// ==========================
-mercadopago.configure({
-  access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN,
-});
 
 // ==========================
 // Middlewares
@@ -43,7 +36,7 @@ app.post("/shipping/calculate", (req, res) => {
 });
 
 // ==========================
-// Criação de preferência no Mercado Pago
+// Criação de preferência Mercado Pago via API
 // ==========================
 app.post("/mercadopago/create-preference", async (req, res) => {
   const { items, payer, shipping } = req.body;
@@ -73,11 +66,20 @@ app.post("/mercadopago/create-preference", async (req, res) => {
       auto_return: "approved",
     };
 
-    const response = await mercadopago.preferences.create(preferenceData);
+    const response = await fetch("https://api.mercadopago.com/checkout/preferences", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.MERCADO_PAGO_ACCESS_TOKEN}`,
+      },
+      body: JSON.stringify(preferenceData),
+    });
 
-    if (!response || !response.body?.init_point) throw new Error("Não foi possível gerar link de pagamento");
+    const data = await response.json();
 
-    res.json({ payment_url: response.body.init_point });
+    if (!data?.init_point) throw new Error("Não foi possível gerar link de pagamento");
+
+    res.json({ payment_url: data.init_point });
   } catch (error) {
     console.error("❌ Erro ao criar pedido:", error);
     res.status(500).json({ error: "Erro ao criar pedido", details: error.message });
