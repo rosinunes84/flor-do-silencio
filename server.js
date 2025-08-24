@@ -9,8 +9,8 @@ const PORT = process.env.PORT || 4000;
 // ==========================
 // Configuração do Mercado Pago (SDK v2)
 // ==========================
-mercadopago.configure({
-  access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
+const mp = new mercadopago.MercadoPago({
+  accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN
 });
 
 // ==========================
@@ -88,7 +88,7 @@ app.post("/mercadopago/create-preference", async (req, res) => {
       auto_return: "approved",
     };
 
-    const response = await mercadopago.preferences.create({ body: preferenceData });
+    const response = await mp.preferences.create({ body: preferenceData });
 
     if (!response || !response.body || !response.body.init_point) {
       throw new Error("Não foi possível gerar link de pagamento");
