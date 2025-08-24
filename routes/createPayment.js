@@ -1,10 +1,8 @@
-// routes/createPayment.js
-const mercadopago = require("mercadopago");
+const axios = require('axios');
+const mercadopago = require('mercadopago');
 
-// Configura o token de acesso (v3.x)
-mercadopago.configure({
-  access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
-});
+// Configura token do Mercado Pago (v2.8.0)
+mercadopago.configurations = { access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN };
 
 const createPayment = async (req, res) => {
   try {
@@ -14,23 +12,24 @@ const createPayment = async (req, res) => {
       return res.status(400).json({ error: "Itens e dados do cliente são obrigatórios" });
     }
 
-    // Monta preference para Mercado Pago
+    // Monta preference
     const preference = {
       items: items.map((item) => ({
         title: item.name,
         quantity: item.quantity,
+        currency_id: 'BRL',
         unit_price: item.amount,
       })),
       payer: {
         name: customer.name,
         email: customer.email,
-        phone: {
-          area_code: customer.phone.substring(0, 2),
-          number: customer.phone.substring(2),
-        },
         identification: {
           type: "CPF",
           number: customer.cpf,
+        },
+        phone: {
+          area_code: customer.phone.substring(0, 2),
+          number: customer.phone.substring(2),
         },
         address: {
           zip_code: customer.zipCode,
@@ -53,7 +52,11 @@ const createPayment = async (req, res) => {
           federal_unit: customer.state || "UF",
         },
       },
-      external_reference: orderId || `${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+      payment_methods: {
+        installments: 1,
+        excluded_payment_types: [],
+      },
+      external_reference: orderId,
       back_urls: {
         success: process.env.API_URL + "/success",
         failure: process.env.API_URL + "/failure",
@@ -62,13 +65,17 @@ const createPayment = async (req, res) => {
       auto_return: "approved",
     };
 
-    // Cria a preferência no Mercado Pago
-    const response = await mercadopago.preferences.create(preference);
-
-    res.json({ payment_url: response.body.init_point });
+    // Cria preferência (v2.8.0 usa callback)
+    mercadopago.preferences.create(preference, (error, response) => {
+      if (error) {
+        console.error("Erro ao criar pagamento:", error);
+        return res.status(500).json({ error: "Erro ao criar pagamento", details: error.message });
+      }
+      res.json({ checkoutUrl: response.response.init_point });
+    });
   } catch (error) {
-    console.error("Erro no createPayment Mercado Pago:", error);
-    res.status(500).json({ error: "Erro ao criar pagamento", details: error.message });
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao criar pagamento', details: error.message });
   }
 };
 
