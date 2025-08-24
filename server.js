@@ -1,10 +1,15 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const mercadopago = require("mercadopago");
+const { MercadoPago } = require("mercadopago");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+// ==========================
+// Configuração do Mercado Pago (SDK v3+)
+// ==========================
+const mp = new MercadoPago({ accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN });
 
 app.use(cors());
 app.use(express.json());
@@ -34,9 +39,8 @@ app.post("/shipping/calculate", async (req, res) => {
     const simulatedShipping = {
       name: "Sedex Simulado",
       price: 22.9,
-      delivery_time: 5, // dias úteis
+      delivery_time: 5,
     };
-
     res.json([simulatedShipping]);
   } catch (error) {
     console.error("❌ Erro ao calcular frete:", error);
@@ -78,10 +82,7 @@ app.post("/mercadopago/create-preference", async (req, res) => {
       auto_return: "approved",
     };
 
-    const response = await mercadopago.preferences.create({
-      body: preferenceData,
-      access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
-    });
+    const response = await mp.preferences.create({ body: preferenceData });
 
     if (!response || !response.body || !response.body.init_point) {
       throw new Error("Não foi possível gerar link de pagamento");
