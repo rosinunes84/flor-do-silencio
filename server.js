@@ -1,9 +1,15 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const fetch = require("node-fetch"); // certifique-se de instalar node-fetch se não estiver
+const mercadopago = require("mercadopago");
+
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+// Configuração do Mercado Pago
+mercadopago.configure({
+  access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
+});
 
 app.use(cors());
 app.use(express.json());
@@ -34,7 +40,7 @@ app.post("/shipping/calculate", async (req, res) => {
     const simulatedShipping = {
       name: "Sedex Simulado",
       price: 22.90,
-      delivery_time: 5, // dias úteis
+      delivery_time: 5 // dias úteis
     };
 
     res.json([simulatedShipping]);
@@ -45,84 +51,44 @@ app.post("/shipping/calculate", async (req, res) => {
 });
 
 // ==========================
-// Criação de ordem no PagSeguro
+// Criação de ordem no Mercado Pago
 // ==========================
-app.post("/pagseguro/create_order", async (req, res) => {
-  const { items, customer, shipping } = req.body;
-  if (!items?.length || !customer) {
-    return res
-      .status(400)
-      .json({ error: "Itens e dados do cliente obrigatórios" });
+app.post("/mercadopago/create_order", async (req, res) => {
+  const { items, payer, shipping } = req.body;
+
+  if (!items?.length || !payer) {
+    return res.status(400).json({ error: "Itens e dados do comprador obrigatórios" });
   }
 
   try {
-    const formData = new URLSearchParams();
+    const preference = {
+      items,
+      payer,
+      shipping,
+      back_urls: {
+        success: process.env.FRONTEND_URL || "http://localhost:3000",
+        failure: process.env.FRONTEND_URL || "http://localhost:3000",
+        pending: process.env.FRONTEND_URL || "http://localhost:3000"
+      },
+      auto_return: "approved"
+    };
 
-    items.forEach((item, i) => {
-      formData.append(`itemId${i + 1}`, item.id);
-      formData.append(`itemDescription${i + 1}`, item.name);
-      formData.append(`itemAmount${i + 1}`, parseFloat(item.amount).toFixed(2));
-      formData.append(`itemQuantity${i + 1}`, item.quantity);
-    });
+    const response = await mercadopago.preferences.create(preference);
 
-    if (shipping?.cost > 0) {
-      formData.append(`itemId${items.length + 1}`, "frete");
-      formData.append(`itemDescription${items.length + 1}`, "Frete");
-      formData.append(`itemAmount${items.length + 1}`, parseFloat(shipping.cost).toFixed(2));
-      formData.append(`itemQuantity${items.length + 1}`, 1);
-      formData.append("shippingType", shipping.type || 1);
+    if (!response || !response.body || !response.body.init_point) {
+      throw new Error("Não foi possível gerar link de pagamento");
     }
 
-    formData.append("email", process.env.PAGSEGURO_EMAIL);
-    formData.append("token", process.env.PAGSEGURO_TOKEN);
-    formData.append("currency", "BRL");
-
-    // ✅ referência única com timestamp + random
-    const uniqueReference = `${Date.now()}_${Math.floor(Math.random() * 100000)}`;
-    formData.append("reference", uniqueReference);
-
-    formData.append("senderName", customer.name);
-    formData.append("senderEmail", customer.email);
-    formData.append("senderPhone", customer.phone.replace(/\D/g, "").slice(0, 11));
-    formData.append("shippingAddressStreet", customer.address.split(",")[0] || "Rua Teste");
-    formData.append("shippingAddressNumber", customer.address.split(",")[1]?.trim() || "S/N");
-    formData.append("shippingAddressDistrict", customer.address.split(",")[1]?.trim() || "Bairro");
-    formData.append("shippingAddressPostalCode", customer.zipCode.replace(/\D/g, ""));
-    formData.append("shippingAddressCity", customer.city || "Cidade");
-    formData.append("shippingAddressState", customer.state || "UF");
-    formData.append("shippingAddressCountry", "BRA");
-
-    const response = await fetch("https://ws.pagseguro.uol.com.br/v2/checkout", {
-      method: "POST",
-      body: formData.toString(),
-      headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
-    });
-
-    const text = await response.text();
-
-    // ✅ log completo do XML retornado
-    console.log("📦 XML retornado pelo PagSeguro:", text);
-
-    const checkoutCodeMatch = text.match(/<code>(.*)<\/code>/);
-    if (!checkoutCodeMatch) {
-      return res.status(500).json({
-        error: "Checkout inválido do PagSeguro",
-        details: "Não foi possível gerar checkout code",
-      });
-    }
-
-    const checkoutUrl = `https://pagseguro.uol.com.br/v2/checkout/payment.html?code=${checkoutCodeMatch[1]}`;
-
-    res.json({ payment_url: checkoutUrl });
+    res.json({ payment_url: response.body.init_point });
   } catch (error) {
-    console.error("❌ Erro PagSeguro:", error);
+    console.error("❌ Erro Mercado Pago:", error);
     res.status(500).json({
-      error: "Erro ao criar pedido no PagSeguro",
-      details: error.message,
+      error: "Erro ao criar pedido no Mercado Pago",
+      details: error.message
     });
   }
 });
 
 app.listen(PORT, () =>
-  console.log(`🚀 Server running on port ${PORT}`)
+  console.log(`🚀 Server rodando na porta ${PORT}`)
 );
