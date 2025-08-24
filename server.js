@@ -1,8 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const fetch = require("node-fetch"); // Certifique-se de instalar node-fetch v2
-
+const fetch = require("node-fetch"); // certifique-se de instalar node-fetch se não estiver
 const app = express();
 const PORT = process.env.PORT || 4000;
 
@@ -31,10 +30,11 @@ app.post("/shipping/calculate", async (req, res) => {
   }
 
   try {
+    // Simulação de frete fixo
     const simulatedShipping = {
       name: "Sedex Simulado",
       price: 22.90,
-      delivery_time: 5,
+      delivery_time: 5, // dias úteis
     };
 
     res.json([simulatedShipping]);
@@ -50,22 +50,21 @@ app.post("/shipping/calculate", async (req, res) => {
 app.post("/pagseguro/create_order", async (req, res) => {
   const { items, customer, shipping } = req.body;
   if (!items?.length || !customer) {
-    return res.status(400).json({ error: "Itens e dados do cliente obrigatórios" });
+    return res
+      .status(400)
+      .json({ error: "Itens e dados do cliente obrigatórios" });
   }
 
   try {
     const formData = new URLSearchParams();
 
-    // Itens do pedido
     items.forEach((item, i) => {
       formData.append(`itemId${i + 1}`, item.id);
       formData.append(`itemDescription${i + 1}`, item.name);
-      // Garantir que amount está no formato correto (com ponto decimal)
       formData.append(`itemAmount${i + 1}`, parseFloat(item.amount).toFixed(2));
       formData.append(`itemQuantity${i + 1}`, item.quantity);
     });
 
-    // Adicionar frete se houver
     if (shipping?.cost > 0) {
       formData.append(`itemId${items.length + 1}`, "frete");
       formData.append(`itemDescription${items.length + 1}`, "Frete");
@@ -74,32 +73,25 @@ app.post("/pagseguro/create_order", async (req, res) => {
       formData.append("shippingType", shipping.type || 1);
     }
 
-    // Dados do vendedor e moeda
     formData.append("email", process.env.PAGSEGURO_EMAIL);
     formData.append("token", process.env.PAGSEGURO_TOKEN);
     formData.append("currency", "BRL");
-    formData.append("reference", Date.now().toString()); // referência única
 
-    // Dados do cliente
-    const safePhone = customer.phone.replace(/\D/g, "").slice(0, 11);
-    const safeZip = customer.zipCode.replace(/\D/g, "");
-    const addressParts = (customer.address || "Rua Teste, S/N").split(",");
-    const street = addressParts[0] || "Rua Teste";
-    const number = addressParts[1]?.trim() || "S/N";
-    const district = addressParts[1]?.trim() || "Bairro";
+    // ✅ referência única com timestamp + random
+    const uniqueReference = `${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+    formData.append("reference", uniqueReference);
 
     formData.append("senderName", customer.name);
     formData.append("senderEmail", customer.email);
-    formData.append("senderPhone", safePhone);
-    formData.append("shippingAddressStreet", street);
-    formData.append("shippingAddressNumber", number);
-    formData.append("shippingAddressDistrict", district);
-    formData.append("shippingAddressPostalCode", safeZip);
+    formData.append("senderPhone", customer.phone.replace(/\D/g, "").slice(0, 11));
+    formData.append("shippingAddressStreet", customer.address.split(",")[0] || "Rua Teste");
+    formData.append("shippingAddressNumber", customer.address.split(",")[1]?.trim() || "S/N");
+    formData.append("shippingAddressDistrict", customer.address.split(",")[1]?.trim() || "Bairro");
+    formData.append("shippingAddressPostalCode", customer.zipCode.replace(/\D/g, ""));
     formData.append("shippingAddressCity", customer.city || "Cidade");
     formData.append("shippingAddressState", customer.state || "UF");
     formData.append("shippingAddressCountry", "BRA");
 
-    // Chamada ao PagSeguro
     const response = await fetch("https://ws.pagseguro.uol.com.br/v2/checkout", {
       method: "POST",
       body: formData.toString(),
@@ -108,13 +100,14 @@ app.post("/pagseguro/create_order", async (req, res) => {
 
     const text = await response.text();
 
-    // ✅ Verifica se o XML contém <code>
+    // ✅ log completo do XML retornado
+    console.log("📦 XML retornado pelo PagSeguro:", text);
+
     const checkoutCodeMatch = text.match(/<code>(.*)<\/code>/);
     if (!checkoutCodeMatch) {
-      console.error("❌ XML retornado pelo PagSeguro:", text);
       return res.status(500).json({
         error: "Checkout inválido do PagSeguro",
-        details: "Não foi possível gerar checkout code"
+        details: "Não foi possível gerar checkout code",
       });
     }
 
