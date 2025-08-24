@@ -6,23 +6,29 @@ const mercadopago = require("mercadopago");
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// Configuração do Mercado Pago (SDK oficial v2)
-mercadopago.configurations.setAccessToken(process.env.MERCADO_PAGO_ACCESS_TOKEN);
+// ==========================
+// Inicializa o Mercado Pago (SDK v2)
+// ==========================
+mercadopago.configure({
+  access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN,
+});
 
+// ==========================
 // Middlewares
+// ==========================
 app.use(cors());
 app.use(express.json());
 
+// ==========================
 // Status do servidor
+// ==========================
 app.get("/status", (req, res) => {
-  res.json({
-    status: "ok",
-    message: "Backend rodando 🚀",
-    timestamp: new Date().toISOString(),
-  });
+  res.json({ status: "ok", message: "Backend rodando 🚀", timestamp: new Date().toISOString() });
 });
 
+// ==========================
 // Cálculo de frete simulado
+// ==========================
 app.post("/shipping/calculate", (req, res) => {
   const { zipCode, items } = req.body;
   if (!zipCode || !items?.length) return res.status(400).json({ error: "CEP e itens obrigatórios" });
@@ -32,10 +38,13 @@ app.post("/shipping/calculate", (req, res) => {
     price: 22.9,
     delivery_time: 5,
   };
+
   res.json([simulatedShipping]);
 });
 
+// ==========================
 // Criação de preferência no Mercado Pago
+// ==========================
 app.post("/mercadopago/create-preference", async (req, res) => {
   const { items, payer, shipping } = req.body;
   if (!items?.length || !payer?.email) return res.status(400).json({ error: "Itens e dados do comprador obrigatórios" });
@@ -75,5 +84,7 @@ app.post("/mercadopago/create-preference", async (req, res) => {
   }
 });
 
+// ==========================
 // Start do servidor
+// ==========================
 app.listen(PORT, () => console.log(`🚀 Server rodando na porta ${PORT}`));
