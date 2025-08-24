@@ -2,8 +2,8 @@ const express = require("express");
 const mercadopago = require("mercadopago");
 const router = express.Router();
 
-// Configura o token de acesso do Mercado Pago
-mercadopago.configurations.setAccessToken(process.env.MERCADO_PAGO_ACCESS_TOKEN);
+// Configura o token de acesso do Mercado Pago (versão 2.x)
+mercadopago.configurations = { access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN };
 
 // Rota para criar checkout
 router.post("/checkout", async (req, res) => {
