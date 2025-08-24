@@ -1,22 +1,18 @@
 const express = require("express");
-const mercadopago = require("mercadopago")({
-  access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
-});
+const mercadopago = require("mercadopago");
 const router = express.Router();
+
+// Configura o token de acesso do Mercado Pago
+mercadopago.configurations.setAccessToken(process.env.MERCADO_PAGO_ACCESS_TOKEN);
 
 // Rota para criar checkout
 router.post("/checkout", async (req, res) => {
   try {
-    const { customer, items, shipping, paymentMethod, card } = req.body;
+    const { customer, items, shipping, paymentMethod } = req.body;
 
     if (!items?.length || !customer) {
       return res.status(400).json({ error: "Itens e dados do cliente são obrigatórios" });
     }
-
-    // Calcula total (opcional, apenas para referência)
-    const totalValue =
-      items.reduce((acc, item) => acc + item.amount * item.quantity, 0) +
-      (shipping?.amount || 0);
 
     // Prepara os itens para a preferência
     const preferenceItems = items.map((item) => ({
@@ -77,15 +73,15 @@ router.post("/checkout", async (req, res) => {
       },
       external_reference: `${Date.now()}_${Math.floor(Math.random() * 100000)}`,
       back_urls: {
-        success: process.env.API_URL + "/success",
-        failure: process.env.API_URL + "/failure",
-        pending: process.env.API_URL + "/pending",
+        success: process.env.FRONTEND_URL + "/success",
+        failure: process.env.FRONTEND_URL + "/failure",
+        pending: process.env.FRONTEND_URL + "/pending",
       },
       auto_return: "approved",
     };
 
     // Observação: cartão de crédito é capturado via frontend
-    if (paymentMethod === "card" && card) {
+    if (paymentMethod === "card") {
       preference.payment_methods.excluded_payment_types = [];
     }
 
