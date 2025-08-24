@@ -2,7 +2,7 @@ const express = require("express");
 const mercadopago = require("mercadopago");
 const router = express.Router();
 
-// Configura o token de acesso do Mercado Pago (versão 2.x)
+// Configura token do Mercado Pago para v2.8.0
 mercadopago.configurations = { access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN };
 
 // Rota para criar checkout
@@ -19,23 +19,24 @@ router.post("/checkout", async (req, res) => {
       items.reduce((acc, item) => acc + item.amount * item.quantity, 0) +
       (shipping?.amount || 0);
 
-    // Monta preference para Mercado Pago
+    // Monta preference compatível v2.8.0
     const preference = {
       items: items.map((item) => ({
         title: item.name,
         quantity: item.quantity,
+        currency_id: "BRL",
         unit_price: item.amount,
       })),
       payer: {
         name: customer.name,
         email: customer.email,
-        phone: {
-          area_code: customer.phone.substring(0, 2),
-          number: customer.phone.substring(2),
-        },
         identification: {
           type: "CPF",
           number: customer.cpf,
+        },
+        phone: {
+          area_code: customer.phone.substring(0, 2),
+          number: customer.phone.substring(2),
         },
         address: {
           zip_code: customer.zipCode,
@@ -71,15 +72,14 @@ router.post("/checkout", async (req, res) => {
       auto_return: "approved",
     };
 
-    // Se for cartão de crédito, adiciona detalhes
-    if (paymentMethod === "card" && card) {
-      preference.payment_methods.excluded_payment_types = [];
-      // Observação: Mercado Pago captura cartão via frontend, aqui só geramos a preference
-    }
-
-    const response = await mercadopago.preferences.create(preference);
-
-    res.json({ payment_url: response.body.init_point });
+    // v2.8.0: criação da preferência
+    mercadopago.preferences.create(preference, (error, response) => {
+      if (error) {
+        console.error("Erro no checkout Mercado Pago:", error);
+        return res.status(500).json({ error: "Erro ao processar checkout", details: error.message });
+      }
+      res.json({ payment_url: response.response.init_point });
+    });
   } catch (error) {
     console.error("Erro no checkout Mercado Pago:", error);
     res.status(500).json({ error: "Erro ao processar checkout", details: error.message });
