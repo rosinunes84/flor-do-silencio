@@ -12,7 +12,7 @@ app.use(express.json());
 const client = new MercadoPagoConfig({ accessToken: process.env.MP_ACCESS_TOKEN });
 const payment = new Payment(client);
 
-// Rota única de checkout
+// 📌 Rota de checkout
 app.post("/checkout", async (req, res) => {
   try {
     const { customer, items, shipping, paymentMethod, token, installments, paymentMethodId } = req.body;
@@ -60,6 +60,25 @@ app.post("/checkout", async (req, res) => {
   }
 });
 
-// Rodar servidor
+// 📌 Rota de cálculo de frete
+app.post("/shipping/calculate", async (req, res) => {
+  try {
+    const { cep } = req.body;
+    if (!cep) return res.status(400).json({ error: "CEP obrigatório" });
+
+    // Simulação de opções de frete
+    const shippingOptions = [
+      { id: 1, name: "PAC", price: 20, estimatedDays: 5 },
+      { id: 2, name: "SEDEX", price: 40, estimatedDays: 2 },
+    ];
+
+    res.json(shippingOptions);
+  } catch (error) {
+    console.error("Erro no cálculo de frete:", error);
+    res.status(500).json({ error: "Não foi possível calcular o frete", details: error.message });
+  }
+});
+
+// 📌 Rodar servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
