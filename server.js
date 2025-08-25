@@ -8,64 +8,58 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Config Mercado Pago
+// Configura Mercado Pago
 const client = new MercadoPagoConfig({ accessToken: process.env.MP_ACCESS_TOKEN });
 const payment = new Payment(client);
 
-// 📌 Criar pagamento PIX
-app.post("/checkout/pix", async (req, res) => {
+// Rota única de checkout
+app.post("/checkout", async (req, res) => {
   try {
-    const { transactionAmount, description, email, cpf } = req.body;
+    const { customer, items, shipping, paymentMethod, token, installments, paymentMethodId } = req.body;
+
+    if (!items?.length || !customer) {
+      return res.status(400).json({ error: "Itens e dados do cliente são obrigatórios" });
+    }
+
+    // Calcula valor total
+    const transactionAmount =
+      items.reduce((acc, item) => acc + item.amount * item.quantity, 0) + (shipping?.amount || 0);
+
+    const description = items.map(i => i.name).join(", ");
 
     const body = {
       transaction_amount: Number(transactionAmount),
       description,
-      payment_method_id: "pix",
       payer: {
-        email,
+        email: customer.email,
         identification: {
           type: "CPF",
-          number: cpf,
+          number: customer.cpf,
         },
       },
     };
 
-    const response = await payment.create({ body });
-    res.json(response);
-  } catch (error) {
-    console.error("Erro PIX:", error);
-    res.status(500).json({ error: "Erro ao criar pagamento PIX", details: error.message });
-  }
-});
-
-// 📌 Criar pagamento Cartão de Crédito
-app.post("/checkout/card", async (req, res) => {
-  try {
-    const { transactionAmount, token, description, installments, paymentMethodId, email, cpf } = req.body;
-
-    const body = {
-      transaction_amount: Number(transactionAmount),
-      token, // token do cartão vindo do front
-      description,
-      installments: Number(installments),
-      payment_method_id: paymentMethodId, // ex: "visa"
-      payer: {
-        email,
-        identification: {
-          type: "CPF",
-          number: cpf,
-        },
-      },
-    };
+    if (paymentMethod === "pix") {
+      body.payment_method_id = "pix";
+    } else if (paymentMethod === "card") {
+      if (!token || !paymentMethodId || !installments) {
+        return res.status(400).json({ error: "Token, método e parcelas são obrigatórios para cartão" });
+      }
+      body.token = token;
+      body.installments = Number(installments);
+      body.payment_method_id = paymentMethodId;
+    } else {
+      return res.status(400).json({ error: "Método de pagamento inválido" });
+    }
 
     const response = await payment.create({ body });
     res.json(response);
   } catch (error) {
-    console.error("Erro Cartão:", error);
-    res.status(500).json({ error: "Erro ao criar pagamento Cartão", details: error.message });
+    console.error("Erro no checkout:", error);
+    res.status(500).json({ error: "Erro ao criar pagamento", details: error.message });
   }
 });
 
-// 📌 Rodar servidor
+// Rodar servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
