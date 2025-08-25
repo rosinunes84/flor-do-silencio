@@ -4,10 +4,8 @@ import mercadopago from "mercadopago";
 
 const router = express.Router();
 
-// Configuração com access token
-const mp = new mercadopago.SDK({
-  access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
-});
+// Configura o access token diretamente
+mercadopago.configurations.setAccessToken(process.env.MERCADO_PAGO_ACCESS_TOKEN);
 
 router.post("/", async (req, res) => {
   try {
@@ -47,7 +45,7 @@ router.post("/", async (req, res) => {
       auto_return: "approved"
     };
 
-    const response = await mp.preferences.create(preference);
+    const response = await mercadopago.preferences.create(preference);
 
     res.json({ payment_url: response.body.init_point });
   } catch (err) {
