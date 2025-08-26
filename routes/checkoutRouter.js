@@ -1,97 +1,79 @@
-const express = require("express");
-const mercadopago = require("mercadopago");
+// routes/checkoutRoutes.js
+import express from "express";
+import dotenv from "dotenv";
+import fetch from "node-fetch";
+
+dotenv.config();
 const router = express.Router();
 
-// Configura o token de acesso do Mercado Pago
-mercadopago.configurations.setAccessToken(process.env.MERCADO_PAGO_ACCESS_TOKEN);
-
-// Rota para criar checkout
-router.post("/checkout", async (req, res) => {
+// Criar checkout com AbacatePay
+router.post("/", async (req, res) => {
   try {
-    const { customer, items, shipping, paymentMethod } = req.body;
+    const { customer, items, shipping, paymentMethod, card } = req.body;
 
     if (!items?.length || !customer) {
       return res.status(400).json({ error: "Itens e dados do cliente são obrigatórios" });
     }
 
-    // Prepara os itens para a preferência
-    const preferenceItems = items.map((item) => ({
-      title: item.name,
-      quantity: item.quantity,
-      unit_price: item.amount,
-      currency_id: "BRL"
-    }));
-
-    // Adiciona o frete se houver
-    if (shipping?.amount && shipping.amount > 0) {
-      preferenceItems.push({
-        title: "Frete",
-        quantity: 1,
-        unit_price: shipping.amount,
-        currency_id: "BRL"
-      });
-    }
-
-    // Monta a preferência
-    const preference = {
-      items: preferenceItems,
+    // Monta o payload para AbacatePay
+    const body = {
       payer: {
         name: customer.name,
         email: customer.email,
-        phone: {
-          area_code: customer.phone.substring(0, 2),
-          number: customer.phone.substring(2),
-        },
-        identification: {
-          type: "CPF",
-          number: customer.cpf,
-        },
-        address: {
-          zip_code: customer.zipCode,
-          street_name: customer.address.split(",")[0] || "Rua Teste",
-          street_number: customer.address.split(",")[1]?.trim() || "S/N",
-          neighborhood: customer.address.split(",")[1]?.trim() || "Bairro",
-          city: customer.city || "Cidade",
-          federal_unit: customer.state || "UF",
-        },
+        cpf_cnpj: customer.cpf,
+        phone: customer.phone,
       },
-      shipments: {
-        cost: shipping?.amount || 0,
-        mode: "not_specified",
-        receiver_address: {
-          zip_code: customer.zipCode,
-          street_name: customer.address.split(",")[0] || "Rua Teste",
-          street_number: customer.address.split(",")[1]?.trim() || "S/N",
-          neighborhood: customer.address.split(",")[1]?.trim() || "Bairro",
-          city: customer.city || "Cidade",
-          federal_unit: customer.state || "UF",
-        },
+      items: items.map(i => ({
+        title: i.name,
+        quantity: i.quantity,
+        unit_price: i.amount,
+      })),
+      shipping: {
+        name: shipping?.name || "Entrega",
+        amount: shipping?.amount || 0,
+        estimated_days: shipping?.estimatedDays || 0,
       },
-      payment_methods: {
-        installments: 1,
-        excluded_payment_types: [],
+      payment: {
+        method: paymentMethod || "pix", // pix ou card
+        ...(paymentMethod === "card" && card ? {
+          card_number: card.number,
+          card_holder: card.holder,
+          card_expiration: card.expiration,
+          card_cvv: card.cvv,
+        } : {}),
       },
-      external_reference: `${Date.now()}_${Math.floor(Math.random() * 100000)}`,
-      back_urls: {
-        success: process.env.FRONTEND_URL + "/success",
-        failure: process.env.FRONTEND_URL + "/failure",
-        pending: process.env.FRONTEND_URL + "/pending",
+      callback_urls: {
+        success: `${process.env.FRONTEND_URL}/checkout/success`,
+        failure: `${process.env.FRONTEND_URL}/checkout/failure`,
       },
-      auto_return: "approved",
     };
 
-    // Observação: cartão de crédito é capturado via frontend
-    if (paymentMethod === "card") {
-      preference.payment_methods.excluded_payment_types = [];
+    // Requisição para AbacatePay
+    const response = await fetch("https://api.abacatepay.com/checkout", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.ABACATEPAY_API_KEY}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: data.message || "Erro ao criar checkout" });
     }
 
-    const response = await mercadopago.preferences.create(preference);
+    // Retorna link de pagamento para o frontend
+    res.json({
+      payment_url: data.payment_url,
+      qr_code: data.qr_code || null, // para PIX
+    });
 
-    res.json({ payment_url: response.body.init_point });
   } catch (error) {
-    console.error("Erro no checkout Mercado Pago:", error);
-    res.status(500).json({ error: "Erro ao processar checkout", details: error.message });
+    console.error("Erro AbacatePay:", error);
+    res.status(500).json({ error: "Erro interno no servidor", details: error.message });
   }
 });
 
-module.exports = router;
+export default router;

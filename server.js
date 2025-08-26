@@ -1,59 +1,78 @@
+// server.js
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
-import { MercadoPagoConfig, Payment } from "mercadopago";
+import fetch from "node-fetch";
 
 dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Configura Mercado Pago
-const client = new MercadoPagoConfig({ accessToken: process.env.MP_ACCESS_TOKEN });
-const payment = new Payment(client);
-
-// 📌 Rota de checkout
+// 📌 Rota de checkout com AbacatePay
 app.post("/checkout", async (req, res) => {
   try {
-    const { customer, items, shipping, paymentMethod, token, installments, paymentMethodId } = req.body;
+    const { customer, items, shipping, paymentMethod, card } = req.body;
 
     if (!items?.length || !customer) {
       return res.status(400).json({ error: "Itens e dados do cliente são obrigatórios" });
     }
 
-    // Calcula valor total
-    const transactionAmount =
-      items.reduce((acc, item) => acc + item.amount * item.quantity, 0) + (shipping?.amount || 0);
-
-    const description = items.map(i => i.name).join(", ");
-
+    // Monta payload para AbacatePay
     const body = {
-      transaction_amount: Number(transactionAmount),
-      description,
       payer: {
+        name: customer.name,
         email: customer.email,
-        identification: {
-          type: "CPF",
-          number: customer.cpf,
-        },
+        cpf_cnpj: customer.cpf,
+        phone: customer.phone,
+      },
+      items: items.map(i => ({
+        title: i.name,
+        quantity: i.quantity,
+        unit_price: i.amount,
+      })),
+      shipping: {
+        name: shipping?.name || "Entrega",
+        amount: shipping?.amount || 0,
+        estimated_days: shipping?.estimatedDays || 0,
+      },
+      payment: {
+        method: paymentMethod || "pix", // pix ou card
+        ...(paymentMethod === "card" && card ? {
+          card_number: card.number,
+          card_holder: card.holder,
+          card_expiration: card.expiration,
+          card_cvv: card.cvv,
+        } : {}),
+      },
+      callback_urls: {
+        success: `${process.env.FRONTEND_URL}/checkout/success`,
+        failure: `${process.env.FRONTEND_URL}/checkout/failure`,
       },
     };
 
-    if (paymentMethod === "pix") {
-      body.payment_method_id = "pix";
-    } else if (paymentMethod === "card") {
-      if (!token || !paymentMethodId || !installments) {
-        return res.status(400).json({ error: "Token, método e parcelas são obrigatórios para cartão" });
-      }
-      body.token = token;
-      body.installments = Number(installments);
-      body.payment_method_id = paymentMethodId;
-    } else {
-      return res.status(400).json({ error: "Método de pagamento inválido" });
+    // Chamada para API AbacatePay
+    const response = await fetch("https://api.abacatepay.com/checkout", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.ABACATEPAY_API_KEY}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: data.message || "Erro ao criar checkout" });
     }
 
-    const response = await payment.create({ body });
-    res.json(response);
+    // Retorna link de pagamento / QRCode (PIX)
+    res.json({
+      payment_url: data.payment_url,
+      qr_code: data.qr_code || null,
+    });
+
   } catch (error) {
     console.error("Erro no checkout:", error);
     res.status(500).json({ error: "Erro ao criar pagamento", details: error.message });
