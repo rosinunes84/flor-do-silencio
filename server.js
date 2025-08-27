@@ -9,8 +9,8 @@ const app = express();
 // ⚡ CORS ajustado para frontend
 app.use(cors({
   origin: [
-    "https://flor-do-silencio.web.app",
-    "http://localhost:5173",
+    "https://flor-do-silencio.web.app", // frontend oficial
+    "http://localhost:5173",             // ambiente dev
   ],
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   credentials: true
@@ -18,62 +18,38 @@ app.use(cors({
 
 app.use(express.json());
 
-// 📌 Rota de checkout AbacatePay
+// 📌 Rota de checkout para AbacatePay
 app.post("/checkout", async (req, res) => {
   try {
-    const { customer, items, shipping, coupon, paymentMethod } = req.body;
+    const { customer, items, shipping, coupon, totalAmount, paymentMethod, card } = req.body;
 
-    if (!items?.length || !customer || !shipping) {
-      return res.status(400).json({ error: "Itens, cliente e frete são obrigatórios" });
+    if (!customer || !items || !items.length) {
+      return res.status(400).json({ error: "Itens e dados do cliente são obrigatórios" });
     }
 
-    // Calcula total
-    const totalAmount = items.reduce((acc, i) => acc + i.amount * i.quantity, 0) + (shipping?.amount || 0);
-
+    // Monta payload para AbacatePay
     const payload = {
-      customer: {
-        name: customer.name,
-        email: customer.email,
-        cellphone: customer.phone,
-        taxId: customer.cpf,
-        address: {
-          zipCode: customer.zipCode,
-          street: customer.address,
-          city: customer.city,
-          state: customer.state,
-        }
-      },
+      customer,
       items,
       shipping,
+      coupon,
       totalAmount,
-      coupon: coupon || null,
-      paymentMethod: paymentMethod || "PIX",
+      paymentMethod,
+      card,
+      devMode: true
     };
 
-    console.log("📦 Payload enviado para AbacatePay:", payload);
-
     const response = await axios.post(
-      "https://api.abacatepay.com/v1/charges",
+      "https://api.abacatepay.com/v1/charge",
       payload,
-      {
-        headers: {
-          "Authorization": `Bearer ${process.env.ABACATEPAY_KEY}`,
-          "Content-Type": "application/json"
-        }
-      }
+      { headers: { "Authorization": `Bearer ${process.env.ABACATEPAY_TOKEN}` } }
     );
 
-    console.log("📬 Resposta do AbacatePay:", response.data);
+    res.json(response.data);
 
-    if (response.data?.data?.url) {
-      return res.json({ payment_url: response.data.data.url });
-    }
-
-    res.status(500).json({ error: "Não foi possível gerar o link de pagamento", details: response.data });
-
-  } catch (err) {
-    console.error("Erro no checkout AbacatePay:", err.response?.data || err.message);
-    res.status(500).json({ error: "Erro ao criar pagamento", details: err.response?.data || err.message });
+  } catch (error) {
+    console.error("Erro no checkout:", error.response?.data || error.message);
+    res.status(500).json({ error: "Erro ao criar pagamento", details: error.response?.data || error.message });
   }
 });
 
@@ -81,18 +57,25 @@ app.post("/checkout", async (req, res) => {
 app.post("/shipping/calculate", async (req, res) => {
   try {
     const { cep } = req.body;
-    if (!cep) return res.status(400).json({ error: "CEP obrigatório" });
+    if (!cep || typeof cep !== "string") {
+      return res.status(400).json({ error: "CEP obrigatório e deve ser string" });
+    }
 
     // Simulação de opções de frete
     const shippingOptions = [
-      { id: 1, name: "PAC", price: 2000, estimatedDays: 5 }, // centavos
+      { id: 1, name: "PAC", price: 2000, estimatedDays: 5 },   // valores em centavos
       { id: 2, name: "SEDEX", price: 4000, estimatedDays: 2 },
     ];
+
+    // Exemplo de frete grátis se subtotal >= 130 reais
+    if (req.body.subtotal >= 13000) {
+      shippingOptions.unshift({ id: "free", name: "Frete Grátis", price: 0, estimatedDays: 5 });
+    }
 
     res.json(shippingOptions);
 
   } catch (error) {
-    console.error("Erro no cálculo de frete:", error.message);
+    console.error("Erro no cálculo de frete:", error);
     res.status(500).json({ error: "Não foi possível calcular o frete", details: error.message });
   }
 });
