@@ -1,79 +1,40 @@
+// server.js
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
-import { MercadoPagoConfig, Payment } from "mercadopago";
+import fetch from "node-fetch"; // para chamadas à API AbacatePay
 
 dotenv.config();
 const app = express();
 
-// ⚡ CORS ajustado para frontend
-app.use(cors({
-  origin: [
-    "https://flor-do-silencio.web.app", // frontend oficial
-    "http://localhost:5173",             // ambiente dev
-  ],
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  credentials: true
-}));
+// ⚡ CORS
+app.use(
+  cors({
+    origin: [
+      "https://flor-do-silencio.web.app", // frontend oficial
+      "http://localhost:5173",            // ambiente dev
+    ],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true,
+  })
+);
 
 app.use(express.json());
 
-// Configura Mercado Pago
-const client = new MercadoPagoConfig({ accessToken: process.env.MP_ACCESS_TOKEN });
-const payment = new Payment(client);
+// ===============================
+// 🔑 Config AbacatePay
+// ===============================
+const ABACATEPAY_URL = "https://api.abacatepay.com/v1";
+const ABACATEPAY_KEY = process.env.ABACATEPAY_KEY;
 
-// 📌 Rota de checkout
-app.post("/checkout", async (req, res) => {
-  try {
-    const { customer, items, shipping, paymentMethod, token, installments, paymentMethodId } = req.body;
-
-    if (!items?.length || !customer) {
-      return res.status(400).json({ error: "Itens e dados do cliente são obrigatórios" });
-    }
-
-    const transactionAmount =
-      items.reduce((acc, item) => acc + item.amount * item.quantity, 0) + (shipping?.amount || 0);
-
-    const description = items.map(i => i.name).join(", ");
-
-    const body = {
-      transaction_amount: Number(transactionAmount),
-      description,
-      payer: {
-        email: customer.email,
-        identification: {
-          type: "CPF",
-          number: customer.cpf,
-        },
-      },
-    };
-
-    if (paymentMethod === "pix") {
-      body.payment_method_id = "pix";
-    } else if (paymentMethod === "card") {
-      if (!token || !paymentMethodId || !installments) {
-        return res.status(400).json({ error: "Token, método e parcelas são obrigatórios para cartão" });
-      }
-      body.token = token;
-      body.installments = Number(installments);
-      body.payment_method_id = paymentMethodId;
-    } else {
-      return res.status(400).json({ error: "Método de pagamento inválido" });
-    }
-
-    const response = await payment.create({ body });
-    res.json(response);
-
-  } catch (error) {
-    console.error("Erro no checkout:", error);
-    res.status(500).json({ error: "Erro ao criar pagamento", details: error.message });
-  }
-});
-
-// 📌 Rota de cálculo de frete
+// ===============================
+// 📌 Rota - Cálculo de Frete
+// ===============================
 app.post("/shipping/calculate", async (req, res) => {
   try {
     const { cep } = req.body;
+    console.log("📦 Cálculo de frete para CEP:", cep);
+
     if (!cep) return res.status(400).json({ error: "CEP obrigatório" });
 
     // Simulação de opções de frete
@@ -82,14 +43,89 @@ app.post("/shipping/calculate", async (req, res) => {
       { id: 2, name: "SEDEX", price: 40, estimatedDays: 2 },
     ];
 
+    console.log("🚚 Opções de frete:", shippingOptions);
     res.json(shippingOptions);
-
   } catch (error) {
-    console.error("Erro no cálculo de frete:", error);
+    console.error("❌ Erro no cálculo de frete:", error);
     res.status(500).json({ error: "Não foi possível calcular o frete", details: error.message });
   }
 });
 
-// 📌 Rodar servidor
+// ===============================
+// 📌 AbacatePay - Criar Cobrança PIX ou Boleto
+// ===============================
+app.post("/abacatepay/charge", async (req, res) => {
+  try {
+    console.log("⚡ Criando cobrança AbacatePay:", req.body);
+    const response = await fetch(`${ABACATEPAY_URL}/bill`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${ABACATEPAY_KEY}`,
+      },
+      body: JSON.stringify(req.body),
+    });
+
+    const data = await response.json();
+    console.log("✅ Resposta AbacatePay (Cobrança criada):", data);
+
+    res.json(data);
+  } catch (error) {
+    console.error("❌ Erro ao criar cobrança AbacatePay:", error);
+    res.status(500).json({ error: "Erro ao criar cobrança", details: error.message });
+  }
+});
+
+// ===============================
+// 📌 AbacatePay - Listar Cobranças
+// ===============================
+app.get("/abacatepay/bills", async (req, res) => {
+  try {
+    console.log("📋 Listando cobranças...");
+    const response = await fetch(`${ABACATEPAY_URL}/bill`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${ABACATEPAY_KEY}`,
+      },
+    });
+
+    const data = await response.json();
+    console.log("✅ Resposta AbacatePay (Bills):", data);
+
+    res.json(data);
+  } catch (error) {
+    console.error("❌ Erro ao listar cobranças:", error);
+    res.status(500).json({ error: "Erro ao listar cobranças", details: error.message });
+  }
+});
+
+// ===============================
+// 📌 AbacatePay - Checar Status da Cobrança
+// ===============================
+app.get("/abacatepay/status/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`🔍 Checando status da cobrança ID: ${id}`);
+
+    const response = await fetch(`${ABACATEPAY_URL}/pix/charge/${id}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${ABACATEPAY_KEY}`,
+      },
+    });
+
+    const data = await response.json();
+    console.log("✅ Resposta AbacatePay (Status):", data);
+
+    res.json(data);
+  } catch (error) {
+    console.error("❌ Erro ao checar status:", error);
+    res.status(500).json({ error: "Erro ao checar status da cobrança", details: error.message });
+  }
+});
+
+// ===============================
+// 🚀 Rodar servidor
+// ===============================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
