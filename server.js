@@ -24,7 +24,7 @@ const FREE_SHIPPING_MIN = 13000; // R$ 130,00 em centavos
 // 📌 Rota de checkout AbacatePay
 app.post("/checkout", async (req, res) => {
   try {
-    const { customer, items, shipping, coupon, payment_method, subtotal } = req.body;
+    const { customer, items, shipping, coupon, payment_method } = req.body;
 
     console.log("✅ Recebido payload do frontend:", req.body);
 
@@ -32,11 +32,10 @@ app.post("/checkout", async (req, res) => {
       return res.status(400).json({ error: "Itens e dados do cliente são obrigatórios" });
     }
 
-    // Calcula valor do frete
+    // Ajusta valor do frete se necessário
     let shippingAmount = shipping?.amount || 0;
-    if (subtotal >= FREE_SHIPPING_MIN) {
-      shippingAmount = 0;
-    }
+    const subtotal = items.reduce((sum, i) => sum + (i.price * (i.quantity || 1)), 0);
+    if (subtotal >= FREE_SHIPPING_MIN) shippingAmount = 0;
 
     // Ajusta payload para o modelo oficial da AbacatePay
     const payload = {
@@ -50,7 +49,6 @@ app.post("/checkout", async (req, res) => {
           quantity: item.quantity || 1,
           price: item.price
         })),
-        // Adiciona frete como produto, se houver
         ...(shippingAmount > 0 ? [{
           externalId: `shipping_${Date.now()}`,
           name: "Frete",
@@ -61,16 +59,18 @@ app.post("/checkout", async (req, res) => {
       ],
       customerId: customer.id || undefined,
       customer: {
-        name: customer.name,
-        cellphone: customer.cellphone,
-        email: customer.email,
-        taxId: customer.taxId
+        metadata: {
+          name: customer.name,
+          cellphone: customer.cellphone,
+          email: customer.email,
+          taxId: customer.taxId
+        }
       },
       allowCoupons: true,
       coupons: coupon ? [coupon] : [],
       externalId: `order_${Date.now()}`,
-      returnUrl: process.env.RETURN_URL || "https://example.com/billing",
-      completionUrl: process.env.COMPLETION_URL || "https://example.com/completion"
+      returnUrl: process.env.RETURN_URL,
+      completionUrl: process.env.COMPLETION_URL
     };
 
     console.log("🚀 Payload enviado para AbacatePay:", payload);
@@ -108,7 +108,7 @@ app.post("/shipping/calculate", async (req, res) => {
     if (!cep) return res.status(400).json({ error: "CEP obrigatório" });
 
     let shippingOptions = [
-      { id: 1, name: "PAC", price: 2000, estimatedDays: 5 },
+      { id: 1, name: "PAC", price: 20,90, estimatedDays: 5 },
       { id: 2, name: "SEDEX", price: 4000, estimatedDays: 2 }
     ];
 
