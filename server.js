@@ -24,7 +24,7 @@ const FREE_SHIPPING_MIN = 13000; // R$ 130,00 em centavos
 // 📌 Rota de checkout AbacatePay
 app.post("/checkout", async (req, res) => {
   try {
-    const { customer, items, coupon, payment_method } = req.body;
+    const { customer, items, shipping, coupon, payment_method, subtotal } = req.body;
 
     console.log("✅ Recebido payload do frontend:", req.body);
 
@@ -32,17 +32,33 @@ app.post("/checkout", async (req, res) => {
       return res.status(400).json({ error: "Itens e dados do cliente são obrigatórios" });
     }
 
+    // Calcula valor do frete
+    let shippingAmount = shipping?.amount || 0;
+    if (subtotal >= FREE_SHIPPING_MIN) {
+      shippingAmount = 0;
+    }
+
     // Ajusta payload para o modelo oficial da AbacatePay
     const payload = {
       frequency: "ONE_TIME",
       methods: [payment_method || "PIX"],
-      products: items.map(item => ({
-        externalId: item.id || item.externalId,
-        name: item.name,
-        description: item.description || "",
-        quantity: item.quantity || 1,
-        price: item.price
-      })),
+      products: [
+        ...items.map(item => ({
+          externalId: item.id || item.externalId,
+          name: item.name,
+          description: item.description || "",
+          quantity: item.quantity || 1,
+          price: item.price
+        })),
+        // Adiciona frete como produto, se houver
+        ...(shippingAmount > 0 ? [{
+          externalId: `shipping_${Date.now()}`,
+          name: "Frete",
+          description: "Entrega",
+          quantity: 1,
+          price: shippingAmount
+        }] : [])
+      ],
       customerId: customer.id || undefined,
       customer: {
         name: customer.name,
