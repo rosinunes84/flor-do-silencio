@@ -51,6 +51,7 @@ app.post("/checkout", async (req, res) => {
     };
 
     console.log("🚀 Payload enviado para AbacatePay:", payload); // 🔹 log do payload que será enviado para a API
+    console.log("🔗 URL AbacatePay usada:", `${process.env.ABACATEPAY_API_URL}/v1/charge`); // 🔹 log da URL
 
     // Chamada AbacatePay (ajuste singular /v1/charge)
     const response = await axios.post(
