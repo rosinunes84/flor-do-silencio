@@ -108,7 +108,7 @@ app.post("/shipping/calculate", async (req, res) => {
     if (!cep) return res.status(400).json({ error: "CEP obrigatório" });
 
     let shippingOptions = [
-      { id: 1, name: "PAC", price: 20,90, estimatedDays: 5 },
+      { id: 1, name: "PAC", price: 20.90, estimatedDays: 5 },
       { id: 2, name: "SEDEX", price: 4000, estimatedDays: 2 }
     ];
 
