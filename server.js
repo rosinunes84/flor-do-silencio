@@ -24,7 +24,7 @@ const FREE_SHIPPING_MIN = 13000; // R$ 130,00 em centavos
 // 📌 Rota de checkout AbacatePay
 app.post("/checkout", async (req, res) => {
   try {
-    const { customer, items, shipping, coupon, payment_method } = req.body;
+    const { customer, items, coupon, payment_method } = req.body;
 
     console.log("✅ Recebido payload do frontend:", req.body);
 
@@ -32,53 +32,42 @@ app.post("/checkout", async (req, res) => {
       return res.status(400).json({ error: "Itens e dados do cliente são obrigatórios" });
     }
 
-    // Ajusta valor do frete se necessário
-    let shippingAmount = shipping?.amount || 0;
-    const subtotal = items.reduce((sum, i) => sum + (i.price * (i.quantity || 1)), 0);
-    if (subtotal >= FREE_SHIPPING_MIN) shippingAmount = 0;
+    const abacateUrl = process.env.ABACATEPAY_API_URL;
+    if (!abacateUrl) {
+      return res.status(500).json({ error: "Variável ABACATEPAY_API_URL não definida" });
+    }
 
     // Ajusta payload para o modelo oficial da AbacatePay
     const payload = {
       frequency: "ONE_TIME",
       methods: [payment_method || "PIX"],
-      products: [
-        ...items.map(item => ({
-          externalId: item.id || item.externalId,
-          name: item.name,
-          description: item.description || "",
-          quantity: item.quantity || 1,
-          price: item.price
-        })),
-        ...(shippingAmount > 0 ? [{
-          externalId: `shipping_${Date.now()}`,
-          name: "Frete",
-          description: "Entrega",
-          quantity: 1,
-          price: shippingAmount
-        }] : [])
-      ],
+      products: items.map(item => ({
+        externalId: item.id || item.externalId,
+        name: item.name,
+        description: item.description || "",
+        quantity: item.quantity || 1,
+        price: item.price
+      })),
       customerId: customer.id || undefined,
       customer: {
-        metadata: {
-          name: customer.name,
-          cellphone: customer.cellphone,
-          email: customer.email,
-          taxId: customer.taxId
-        }
+        name: customer.name,
+        cellphone: customer.cellphone,
+        email: customer.email,
+        taxId: customer.taxId
       },
       allowCoupons: true,
       coupons: coupon ? [coupon] : [],
       externalId: `order_${Date.now()}`,
-      returnUrl: process.env.RETURN_URL,
-      completionUrl: process.env.COMPLETION_URL
+      returnUrl: process.env.RETURN_URL || "https://example.com/billing",
+      completionUrl: process.env.COMPLETION_URL || "https://example.com/completion"
     };
 
     console.log("🚀 Payload enviado para AbacatePay:", payload);
-    console.log("🔗 URL AbacatePay usada:", `${process.env.ABACATEPAY_API_URL}/v1/billing/create`);
+    console.log("🔗 URL AbacatePay usada:", `${abacateUrl}/v1/billing/create`);
 
     // Chamada AbacatePay (endpoint correto)
     const response = await axios.post(
-      `${process.env.ABACATEPAY_API_URL}/v1/billing/create`,
+      `${abacateUrl}/v1/billing/create`,
       payload,
       {
         headers: {
@@ -108,7 +97,7 @@ app.post("/shipping/calculate", async (req, res) => {
     if (!cep) return res.status(400).json({ error: "CEP obrigatório" });
 
     let shippingOptions = [
-      { id: 1, name: "PAC", price: 20.90, estimatedDays: 5 },
+      { id: 1, name: "PAC", price: 2000, estimatedDays: 5 },
       { id: 2, name: "SEDEX", price: 4000, estimatedDays: 2 }
     ];
 
