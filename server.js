@@ -9,8 +9,8 @@ const app = express();
 // ⚡ CORS ajustado para frontend
 app.use(cors({
   origin: [
-    "https://flor-do-silencio.web.app", // frontend oficial
-    "http://localhost:5173",             // ambiente dev
+    "https://flor-do-silencio.web.app",
+    "http://localhost:5173",
   ],
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   credentials: true
@@ -18,37 +18,58 @@ app.use(cors({
 
 app.use(express.json());
 
-// 📌 Rota de checkout para AbacatePay
+// Função para calcular frete grátis
+const FREE_SHIPPING_MIN = 13000; // R$ 130,00 em centavos
+
+// 📌 Rota de checkout AbacatePay
 app.post("/checkout", async (req, res) => {
   try {
-    const { customer, items, shipping, coupon, totalAmount, paymentMethod, card } = req.body;
+    const { customer, items, shipping, coupon, payment_method, amount } = req.body;
 
-    if (!customer || !items || !items.length) {
+    console.log("✅ Recebido payload do frontend:", req.body); // 🔹 log do payload recebido
+
+    if (!items?.length || !customer) {
       return res.status(400).json({ error: "Itens e dados do cliente são obrigatórios" });
     }
 
-    // Monta payload para AbacatePay
+    // Se subtotal atingir mínimo de frete grátis, zera valor do frete
+    let shippingAmount = shipping?.amount || 0;
+    if (amount >= FREE_SHIPPING_MIN) {
+      shippingAmount = 0;
+    }
+
     const payload = {
       customer,
       items,
-      shipping,
-      coupon,
-      totalAmount,
-      paymentMethod,
-      card,
-      devMode: true
+      shipping: {
+        ...shipping,
+        amount: shippingAmount,
+      },
+      coupon: coupon || null,
+      totalAmount: amount + shippingAmount,
+      payment_method: payment_method || "pix"
     };
 
+    console.log("🚀 Payload enviado para AbacatePay:", payload); // 🔹 log do payload que será enviado para a API
+
+    // Chamada AbacatePay (ajuste singular /v1/charge)
     const response = await axios.post(
-      "https://api.abacatepay.com/v1/charge",
+      `${process.env.ABACATEPAY_API_URL}/v1/charge`,
       payload,
-      { headers: { "Authorization": `Bearer ${process.env.ABACATEPAY_TOKEN}` } }
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.ABACATEPAY_API_KEY}`,
+          "Content-Type": "application/json"
+        }
+      }
     );
+
+    console.log("🎯 Resposta da AbacatePay:", response.data); // 🔹 log da resposta da API
 
     res.json(response.data);
 
   } catch (error) {
-    console.error("Erro no checkout:", error.response?.data || error.message);
+    console.error("❌ Erro no checkout AbacatePay:", error.response?.data || error.message);
     res.status(500).json({ error: "Erro ao criar pagamento", details: error.response?.data || error.message });
   }
 });
@@ -56,26 +77,27 @@ app.post("/checkout", async (req, res) => {
 // 📌 Rota de cálculo de frete
 app.post("/shipping/calculate", async (req, res) => {
   try {
-    const { cep } = req.body;
-    if (!cep || typeof cep !== "string") {
-      return res.status(400).json({ error: "CEP obrigatório e deve ser string" });
-    }
+    const { cep, subtotal } = req.body;
 
-    // Simulação de opções de frete
-    const shippingOptions = [
-      { id: 1, name: "PAC", price: 2000, estimatedDays: 5 },   // valores em centavos
-      { id: 2, name: "SEDEX", price: 4000, estimatedDays: 2 },
+    console.log("📦 Cálculo de frete para CEP:", cep, "Subtotal:", subtotal); // 🔹 log do cálculo de frete
+
+    if (!cep) return res.status(400).json({ error: "CEP obrigatório" });
+
+    let shippingOptions = [
+      { id: 1, name: "PAC", price: 2000, estimatedDays: 5 },
+      { id: 2, name: "SEDEX", price: 4000, estimatedDays: 2 }
     ];
 
-    // Exemplo de frete grátis se subtotal >= 130 reais
-    if (req.body.subtotal >= 13000) {
-      shippingOptions.unshift({ id: "free", name: "Frete Grátis", price: 0, estimatedDays: 5 });
+    if (subtotal >= FREE_SHIPPING_MIN) {
+      shippingOptions = shippingOptions.map(opt => ({ ...opt, price: 0 }));
     }
+
+    console.log("🚚 Opções de frete calculadas:", shippingOptions); // 🔹 log das opções de frete
 
     res.json(shippingOptions);
 
   } catch (error) {
-    console.error("Erro no cálculo de frete:", error);
+    console.error("❌ Erro no cálculo de frete:", error);
     res.status(500).json({ error: "Não foi possível calcular o frete", details: error.message });
   }
 });
