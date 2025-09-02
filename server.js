@@ -18,8 +18,8 @@ app.post("/shipping/calculate", (req, res) => {
 
   // Exemplo fixo
   const options = [
-    { id: 1, name: "PAC", price: 2090, estimatedDays: 5 }, // preço em centavos
-    { id: 2, name: "Sedex", price: 3590, estimatedDays: 2 }
+    { id: 1, name: "PAC", price: 20.90, estimatedDays: 5 }, // preço em centavos
+    { id: 2, name: "Sedex", price: 35.90, estimatedDays: 2 }
   ];
 
   return res.json(options);
