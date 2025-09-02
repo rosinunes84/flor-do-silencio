@@ -1,75 +1,122 @@
-// server.js
 import express from "express";
+import dotenv from "dotenv";
 import cors from "cors";
+import axios from "axios";
 
+dotenv.config();
 const app = express();
-app.use(cors());
+
+// ⚡ CORS ajustado para frontend
+app.use(cors({
+  origin: [
+    "https://flor-do-silencio.web.app",
+    "http://localhost:5173",
+  ],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  credentials: true
+}));
+
 app.use(express.json());
 
-// Rotas de teste
-app.get("/", (req, res) => {
-  res.send("API Flor do Silêncio rodando com sucesso 🚀");
-});
+// Função para calcular frete grátis
+const FREE_SHIPPING_MIN = 13000; // R$ 130,00 em centavos
 
-// Endpoint de cálculo de frete (exemplo simples)
-app.post("/shipping/calculate", (req, res) => {
-  const { cep, subtotal } = req.body;
-  console.log("Calculando frete para:", cep, "Subtotal:", subtotal);
-
-  // Exemplo fixo
-  const options = [
-    { id: 1, name: "PAC", price: 20.90, estimatedDays: 5 }, // preço em centavos
-    { id: 2, name: "Sedex", price: 35.90, estimatedDays: 2 }
-  ];
-
-  return res.json(options);
-});
-
-// Endpoint de checkout (ajustado ✅)
+// 📌 Rota de checkout AbacatePay
 app.post("/checkout", async (req, res) => {
   try {
-    const { items, customer, shipping, coupon, payment_method, total } = req.body;
+    const { customer, items, coupon, payment_method } = req.body;
 
-    console.log("Payload recebido no backend:", req.body);
+    if (!items?.length || !customer) {
+      return res.status(400).json({ error: "Itens e dados do cliente são obrigatórios" });
+    }
 
-    // ✅ Corrigir preços para centavos
-    const products = items.map(item => ({
-      id: item.id,
-      name: item.name,
-      price: Math.round(item.price * 100), // conversão necessária
-      quantity: item.quantity,
-    }));
+    // 🔹 Validação de variáveis de ambiente obrigatórias
+    const REQUIRED_ENV = ["ABACATEPAY_API_URL", "ABACATEPAY_API_KEY", "RETURN_URL", "COMPLETION_URL"];
+    for (const envVar of REQUIRED_ENV) {
+      if (!process.env[envVar]) {
+        return res.status(500).json({ error: `Variável ${envVar} não definida` });
+      }
+    }
 
+    const abacateUrl = process.env.ABACATEPAY_API_URL;
+
+    // 🔹 Validação de método de pagamento
+    const allowedMethods = ["PIX", "CREDIT_CARD", "BOLETO"];
+    const method = (payment_method || "PIX").toUpperCase();
+    if (!allowedMethods.includes(method)) {
+      return res.status(400).json({ error: `Método de pagamento inválido. Permitidos: ${allowedMethods.join(", ")}` });
+    }
+
+    // 🔹 Payload para AbacatePay
     const payload = {
-      products,
-      customer,
-      shipping,
-      coupon,
-      payment_method,
-      total: Math.round(total * 100), // total também em centavos
+      frequency: "ONE_TIME",
+      methods: [method],
+      products: items.map(item => ({
+        externalId: item.id || item.externalId,
+        name: item.name,
+        description: item.description || "",
+        quantity: item.quantity || 1,
+        // ✅ Sempre envia em centavos
+        price: Math.round((item.price ?? 0) * 100)
+      })),
+      customerId: customer.id || undefined,
+      customer: {
+        name: customer.name,
+        cellphone: customer.cellphone,
+        email: customer.email,
+        taxId: customer.taxId
+      },
+      allowCoupons: true,
+      coupons: coupon ? [coupon] : [],
+      externalId: `order_${Date.now()}`,
+      returnUrl: process.env.RETURN_URL,
+      completionUrl: process.env.COMPLETION_URL
     };
 
-    console.log("Payload ajustado para Abacate Pay:", payload);
+    // 🔹 Chamada AbacatePay
+    const response = await axios.post(
+      `${abacateUrl}/v1/billing/create`,
+      payload,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.ABACATEPAY_API_KEY}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
 
-    // Simulação da chamada ao Abacate Pay
-    // Aqui você colocaria a request real com fetch/axios
-    const fakeResponse = {
-      status: "success",
-      payment_url: "https://abacatepay.com/checkout/12345",
-    };
+    res.json(response.data);
 
-    return res.json(fakeResponse);
   } catch (error) {
-    console.error("Erro no backend:", error);
-    return res.status(500).json({
-      error: "Erro ao criar pagamento",
-      details: error,
-    });
+    console.error("❌ Erro no checkout AbacatePay:", error.response?.data || error.message);
+    res.status(500).json({ error: "Erro ao criar pagamento", details: error.response?.data || error.message });
   }
 });
 
-// Inicialização do servidor
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor rodando na porta ${PORT}`);
+// 📌 Rota de cálculo de frete
+app.post("/shipping/calculate", async (req, res) => {
+  try {
+    const { cep, subtotal } = req.body;
+
+    if (!cep) return res.status(400).json({ error: "CEP obrigatório" });
+
+    let shippingOptions = [
+      { id: 1, name: "PAC", price: 2000, estimatedDays: 5 },   // R$ 20,00
+      { id: 2, name: "SEDEX", price: 4000, estimatedDays: 2 }  // R$ 40,00
+    ];
+
+    if (subtotal >= FREE_SHIPPING_MIN) {
+      shippingOptions = shippingOptions.map(opt => ({ ...opt, price: 0 }));
+    }
+
+    res.json(shippingOptions);
+
+  } catch (error) {
+    console.error("❌ Erro no cálculo de frete:", error);
+    res.status(500).json({ error: "Não foi possível calcular o frete", details: error.message });
+  }
 });
+
+// 📌 Rodar servidor
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
