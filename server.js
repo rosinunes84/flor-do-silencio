@@ -6,7 +6,7 @@ import axios from "axios";
 dotenv.config();
 const app = express();
 
-// ⚡ CORS ajustado para frontend
+// ⚡ CORS ajustado para frontend e preflight
 app.use(cors({
   origin: [
     "https://flor-do-silencio.web.app",
@@ -16,6 +16,10 @@ app.use(cors({
   credentials: true
 }));
 
+// Responde a requisições OPTIONS para evitar bloqueio CORS
+app.options("*", cors());
+
+// Body JSON
 app.use(express.json());
 
 // Função para calcular frete grátis
@@ -56,8 +60,8 @@ app.post("/checkout", async (req, res) => {
         name: item.name,
         description: item.description || "",
         quantity: item.quantity || 1,
-        // ✅ Sempre envia em centavos
-        price: Math.round((item.price ?? 0) * 100)
+        // ✅ Preço mínimo de 1 real (100 centavos)
+        price: Math.max(100, Math.round((item.price ?? 0) * 100))
       })),
       customerId: customer.id || undefined,
       customer: {
@@ -85,7 +89,13 @@ app.post("/checkout", async (req, res) => {
       }
     );
 
-    res.json(response.data);
+    // 🔹 Normaliza URL de pagamento
+    const paymentUrl = response.data.paymentUrl || response.data.data?.paymentUrl;
+    if (!paymentUrl) {
+      return res.status(500).json({ error: "Pagamento não recebido", details: response.data });
+    }
+
+    res.json({ ...response.data, paymentUrl });
 
   } catch (error) {
     console.error("❌ Erro no checkout AbacatePay:", error.response?.data || error.message);
@@ -105,8 +115,9 @@ app.post("/shipping/calculate", async (req, res) => {
       { id: 2, name: "SEDEX", price: 4000, estimatedDays: 2 }  // R$ 40,00
     ];
 
+    // Adiciona frete grátis sem sobrescrever os outros
     if (subtotal >= FREE_SHIPPING_MIN) {
-      shippingOptions = shippingOptions.map(opt => ({ ...opt, price: 0 }));
+      shippingOptions.push({ id: 0, name: "Frete Grátis", price: 0, estimatedDays: 7 });
     }
 
     res.json(shippingOptions);
