@@ -56,8 +56,10 @@ app.post("/checkout", async (req, res) => {
         name: item.name,
         description: item.description || "",
         quantity: item.quantity || 1,
-        // ✅ Sempre envia em centavos
-        price: Math.round((item.price ?? 0) * 100)
+        // 🔹 Garante que price seja inteiro em centavos
+        price: Math.round(
+          (item.price ?? 0) * (item.price < 1000 ? 100 : 1)
+        )
       })),
       customerId: customer.id || undefined,
       customer: {
@@ -101,8 +103,8 @@ app.post("/shipping/calculate", async (req, res) => {
     if (!cep) return res.status(400).json({ error: "CEP obrigatório" });
 
     let shippingOptions = [
-      { id: 1, name: "PAC", price: 2000, estimatedDays: 5 },   // R$ 20,00
-      { id: 2, name: "SEDEX", price: 4000, estimatedDays: 2 }  // R$ 40,00
+      { id: 1, name: "PAC", price: 20, estimatedDays: 5 },
+      { id: 2, name: "SEDEX", price: 4000, estimatedDays: 2 }
     ];
 
     if (subtotal >= FREE_SHIPPING_MIN) {
