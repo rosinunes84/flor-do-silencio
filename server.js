@@ -47,17 +47,6 @@ app.post("/checkout", async (req, res) => {
       return res.status(400).json({ error: `Método de pagamento inválido. Permitidos: ${allowedMethods.join(", ")}` });
     }
 
-    // 🔹 Garantir que cellphone exista e esteja apenas com números
-    if (!customer.cellphone) {
-      return res.status(400).json({ error: "Campo 'cellphone' do cliente é obrigatório" });
-    }
-    const sanitizedCustomer = {
-      name: customer.name || "Cliente",
-      cellphone: customer.cellphone.replace(/\D/g, ""), // remove caracteres não numéricos
-      email: customer.email || "",
-      taxId: customer.taxId || ""
-    };
-
     // 🔹 Payload para AbacatePay
     const payload = {
       frequency: "ONE_TIME",
@@ -71,7 +60,12 @@ app.post("/checkout", async (req, res) => {
         price: Math.round((item.price ?? 0) * 100)
       })),
       customerId: customer.id || undefined,
-      customer: sanitizedCustomer,
+      customer: {
+        name: customer.name,
+        cellphone: customer.cellphone,
+        email: customer.email,
+        taxId: customer.taxId
+      },
       allowCoupons: true,
       coupons: coupon ? [coupon] : [],
       externalId: `order_${Date.now()}`,
